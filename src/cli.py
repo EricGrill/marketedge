@@ -17,6 +17,7 @@ from src.config import kalshi_config, trading_config, weather_config
 from src.state import StateManager
 from src.formulas import QuantEngine
 from src.backtesting import BacktestEngine, load_trades_csv
+from src.experiments import ExperimentRegistry, parse_key_value_pairs
 from src.api.client import KalshiRestClient
 from src.strategies.weather import WeatherTradingStrategy
 from src.tui.app import KalshiQuantApp
@@ -259,6 +260,89 @@ def backtest(path, bankroll, json_out):
             json.dump(summary.to_dict(), handle, indent=2, allow_nan=False)
             handle.write("\n")
         console.print(f"[green]Wrote dashboard summary to {output_path}[/green]")
+
+
+@cli.group()
+def experiments():
+    """Manage offline experiment registry records."""
+
+
+@experiments.command("create")
+@click.option("--registry", default="data/experiments.jsonl", show_default=True)
+@click.option("--strategy", required=True, help="Strategy name for the run.")
+@click.option("--param", multiple=True, help="Run parameter formatted as key=value.")
+@click.option("--data-ref", multiple=True, help="Input data or snapshot reference.")
+@click.option("--artifact", multiple=True, help="Result artifact path.")
+@click.option("--git-commit", default=None, help="Code commit reference.")
+@click.option("--model-version", default="", help="Model version or identifier.")
+@click.option("--run-id", default=None, help="Stable run id. Generated if omitted.")
+@click.option("--notes", default="", help="Short run note.")
+def experiment_create(
+    registry,
+    strategy,
+    param,
+    data_ref,
+    artifact,
+    git_commit,
+    model_version,
+    run_id,
+    notes,
+):
+    """Create an experiment record."""
+    record = ExperimentRegistry(registry).create(
+        strategy_name=strategy,
+        parameters=parse_key_value_pairs(param),
+        data_references=data_ref,
+        artifact_paths=artifact,
+        git_commit=git_commit,
+        model_version=model_version,
+        run_id=run_id,
+        notes=notes,
+    )
+    console.print(f"[green]Created experiment {record.run_id}[/green]")
+
+
+@experiments.command("list")
+@click.option("--registry", default="data/experiments.jsonl", show_default=True)
+def experiment_list(registry):
+    """List recorded experiments."""
+    records = ExperimentRegistry(registry).list()
+    table = Table(title=f"Experiments: {registry}")
+    table.add_column("Run ID", style="cyan")
+    table.add_column("Strategy")
+    table.add_column("Status")
+    table.add_column("Artifacts")
+    table.add_column("Git")
+
+    for record in records:
+        table.add_row(
+            record.run_id,
+            record.strategy_name,
+            record.status,
+            str(len(record.artifact_paths)),
+            record.git_commit[:12],
+        )
+
+    console.print(table)
+
+
+@experiments.command("show")
+@click.argument("run_id")
+@click.option("--registry", default="data/experiments.jsonl", show_default=True)
+def experiment_show(run_id, registry):
+    """Show one experiment record as JSON."""
+    record = ExperimentRegistry(registry).get(run_id)
+    console.print_json(data=record.to_dict())
+
+
+@experiments.command("add-artifact")
+@click.argument("run_id")
+@click.argument("artifact_path")
+@click.option("--registry", default="data/experiments.jsonl", show_default=True)
+def experiment_add_artifact(run_id, artifact_path, registry):
+    """Append an artifact link to an experiment record."""
+    record = ExperimentRegistry(registry).add_artifact(run_id, artifact_path)
+    console.print(f"[green]Linked artifact to {record.run_id}[/green]")
 
 
 @cli.command()

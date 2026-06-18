@@ -66,3 +66,60 @@ def test_backtest_cli_writes_dashboard_json():
     assert payload["net_pnl"] > 0
     assert payload["profit_factor"] is None
     assert len(payload["equity_curve"]) == 2
+
+
+def test_experiment_cli_creates_lists_and_shows_runs():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        result = runner.invoke(
+            cli,
+            [
+                "experiments",
+                "create",
+                "--registry",
+                "experiments.jsonl",
+                "--strategy",
+                "wx-meanrev",
+                "--param",
+                "edge=0.04",
+                "--data-ref",
+                "data/snapshots/wx.jsonl",
+                "--artifact",
+                "web/data/backtest-summary.json",
+                "--git-commit",
+                "abc123",
+                "--run-id",
+                "run-1",
+            ],
+        )
+        list_result = runner.invoke(
+            cli, ["experiments", "list", "--registry", "experiments.jsonl"]
+        )
+        add_artifact_result = runner.invoke(
+            cli,
+            [
+                "experiments",
+                "add-artifact",
+                "run-1",
+                "web/data/calibration-summary.json",
+                "--registry",
+                "experiments.jsonl",
+            ],
+        )
+        show_result = runner.invoke(
+            cli,
+            ["experiments", "show", "run-1", "--registry", "experiments.jsonl"],
+        )
+        payload = json.loads(show_result.output)
+
+    assert result.exit_code == 0
+    assert "Created experiment run-1" in result.output
+    assert list_result.exit_code == 0
+    assert "wx-meanrev" in list_result.output
+    assert add_artifact_result.exit_code == 0
+    assert "Linked artifact to run-1" in add_artifact_result.output
+    assert show_result.exit_code == 0
+    assert payload["artifact_paths"] == [
+        "web/data/backtest-summary.json",
+        "web/data/calibration-summary.json",
+    ]
