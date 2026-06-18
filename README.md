@@ -149,6 +149,16 @@ Run the strategy loop in dry-run mode:
 python -m src.cli trade --dry --interval 300
 ```
 
+Run an offline backtest from a CSV trade ledger:
+
+```bash
+python -m src.cli backtest path/to/trades.csv --bankroll 10000
+```
+
+Required CSV columns: `timestamp`, `ticker`, `side`, `entry_price`, `exit_price`,
+`quantity`, and `model_probability`. Optional columns include `confidence`,
+`entry_fee`, and `exit_fee`.
+
 Launch the TUI dashboard:
 
 ```bash
