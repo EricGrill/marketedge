@@ -1,112 +1,307 @@
-# MarketEdge
+# Market Edge
 
-A stateful CLI + TUI application for quantitative prediction-market research, opportunity screening, and risk-aware strategy execution. The current implementation starts with weather markets on Kalshi, but the project is intended to expand across event-market categories.
+Market Edge is a prediction-market quant research and execution workbench.
+It is designed to help identify mispricings, arbitrage-like opportunities,
+hedging opportunities, and risk-aware strategies across event markets.
 
-## Architecture
+The current implementation starts with Kalshi weather markets. The project is
+intended to expand beyond weather into other event-market categories once the
+core adapter, risk, persistence, and operations layers are production-ready.
 
-```
-kalshi_weather_quant/
+## Status
+
+Market Edge is currently **experimental and research-first**.
+
+Use dry-run and analysis workflows only. Live trading is not production-ready
+until the live-trading safety gates, kill switches, operator diagnostics, and
+audit trail work are complete.
+
+Known production-readiness gaps are tracked in Linear:
+
+- [CHA-1040](https://linear.app/chainbytes/issue/CHA-1040/prod-001-restore-ci-and-release-verification-for-marketedge): restore CI and release verification.
+- [CHA-1041](https://linear.app/chainbytes/issue/CHA-1041/prod-002-add-explicit-live-trading-safety-gates-and-kill-switches): add live-trading safety gates and kill switches.
+- [CHA-1042](https://linear.app/chainbytes/issue/CHA-1042/prod-003-split-market-adapters-data-providers-and-strategies-into): split market adapters, data providers, and strategies into stable interfaces.
+- [CHA-1043](https://linear.app/chainbytes/issue/CHA-1043/prod-004-harden-persistence-with-migrations-configurable-storage-and): harden persistence with migrations, configurable storage, and audit trails.
+- [CHA-1044](https://linear.app/chainbytes/issue/CHA-1044/prod-005-add-api-resilience-observability-and-operator-diagnostics): add API resilience, observability, and operator diagnostics.
+- [CHA-1045](https://linear.app/chainbytes/issue/CHA-1045/doc-001-create-a-production-grade-readme-for-market-edge): create a production-grade README.
+
+## Repository
+
+- GitHub: [EricGrill/marketedge](https://github.com/EricGrill/marketedge)
+- Local development path: `/Users/eric/code/marketedge`
+- Primary branch: `main`
+
+## What It Does Today
+
+Market Edge currently includes:
+
+- A Click-based CLI for dashboard, analysis, strategy, portfolio, weather, and formula commands.
+- A Textual TUI dashboard scaffold.
+- A Kalshi REST/WebSocket client and weather market scanner.
+- Weather data fetchers and model-blending support.
+- A quant formula engine for opportunity screening and sizing.
+- SQLite-backed state for positions, forecasts, market snapshots, and portfolio state.
+- Initial regression tests for core formulas and state persistence.
+
+## Current Architecture
+
+```text
+marketedge/
 ├── src/
 │   ├── cli.py              # Click CLI entry point
-│   ├── config.py           # Configuration & env vars
-│   ├── state.py            # SQLite state manager (positions, forecasts, snapshots)
-│   ├── formulas.py         # Quant engine (Kelly, IY, LAS, Bayesian, RoR)
+│   ├── config.py           # Environment-driven configuration
+│   ├── formulas.py         # Quant engine and screening math
+│   ├── state.py            # SQLite state manager and SQLAlchemy models
 │   ├── api/
-│   │   └── client.py       # Kalshi REST + WebSocket client, weather market scanner
-│   ├── weather/
-│   │   └── data.py         # NWS + Open-Meteo fetchers, model blending, analog matching
+│   │   └── client.py       # Kalshi REST/WebSocket client and market scanner
 │   ├── strategies/
-│   │   └── weather.py      # Main trading strategy (scan -> evaluate -> execute)
-│   └── tui/
-│       └── app.py          # Textual TUI dashboard
-├── data/                   # SQLite database
-├── requirements.txt
-└── .env.example
+│   │   └── weather.py      # Weather strategy pipeline
+│   ├── tui/
+│   │   └── app.py          # Textual dashboard
+│   └── weather/
+│       └── data.py         # Weather data fetchers and model blend inputs
+├── tests/
+│   ├── conftest.py
+│   ├── test_formulas.py
+│   └── test_state.py
+├── .env.example
+├── .gitignore
+├── README.md
+└── requirements.txt
 ```
 
-## Installation
+The next architectural step is to separate market adapters, data providers, and
+strategies behind stable interfaces so non-weather event markets can be added
+without rewriting core risk or execution logic.
+
+## Quickstart
+
+Clone the private repository:
 
 ```bash
-cd kalshi_weather_quant
+git clone https://github.com/EricGrill/marketedge.git
+cd marketedge
+```
+
+Create a Python environment and install dependencies:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with your Kalshi API credentials
+pip install flake8
 ```
 
-## CLI Commands
+Create local configuration:
 
 ```bash
-# Launch TUI dashboard
-python -m src.cli dashboard
+cp .env.example .env
+```
 
-# Analyze a specific market
-python -m src.cli analyze --ticker RAIN-NYC-2026-05-15 --model-prob 0.65 --side yes
+Edit `.env` with Kalshi credentials before using API-backed commands.
+Keep `KALSHI_SANDBOX=true` unless you are intentionally working with a live
+environment.
 
-# Run trading strategy (dry run)
+## Configuration
+
+`.env.example` documents the current variables:
+
+```env
+KALSHI_API_KEY=your_api_key_here
+KALSHI_API_SECRET=your_api_secret_here
+KALSHI_SANDBOX=true
+```
+
+Optional URL overrides are also supported:
+
+```env
+KALSHI_BASE_URL=https://api.elections.kalshi.com
+KALSHI_WS_URL=wss://api.elections.kalshi.com/ws/v2
+```
+
+Database state currently defaults to `data/kalshi_quant.db`. Configurable
+database paths and schema migrations are tracked in
+[CHA-1043](https://linear.app/chainbytes/issue/CHA-1043/prod-004-harden-persistence-with-migrations-configurable-storage-and).
+
+## Common Commands
+
+Analyze a specific market opportunity:
+
+```bash
+python -m src.cli analyze \
+  --ticker RAIN-NYC-2026-05-15 \
+  --model-prob 0.65 \
+  --side yes
+```
+
+Run the strategy loop in dry-run mode:
+
+```bash
 python -m src.cli trade --dry --interval 300
+```
 
-# Live trading (requires API key)
-python -m src.cli trade --live --interval 300
+Launch the TUI dashboard:
 
-# View positions
-python -m src.cli positions
+```bash
+python -m src.cli dashboard
+```
 
-# View portfolio
+View portfolio state:
+
+```bash
 python -m src.cli portfolio
+```
 
-# Fetch weather data
-python -m src.cli weather --lat 40.71 --lon -74.01 --event-type rain --threshold 1.0
+View open positions:
 
-# Display formulas
+```bash
+python -m src.cli positions
+```
+
+Fetch weather data:
+
+```bash
+python -m src.cli weather \
+  --lat 40.71 \
+  --lon -74.01 \
+  --event-type rain \
+  --threshold 1.0
+```
+
+Display implemented formulas:
+
+```bash
 python -m src.cli formulas
 ```
 
-## Quant Formulas Implemented
+## Verification
 
-1. **Fee-Adjusted Edge**: `p_model / (1 + 0.03 * p_model)` — accounts for Kalshi's 3% settlement fee
-2. **Kelly Criterion**: `(p*(b+1) - 1) / b` with 1/4 fractional Kelly
-3. **Annualized Yield (IY)**: `(1 / price)^(365 / days) - 1` for opportunity screening
-4. **Liquidity Spread (LAS)**: `(Ask - Bid) / Mid` with size reduction rules
-5. **Bayesian Update**: Continuous forecast blending as NWS/ECMWF cycles update
-6. **Weather Model Blend**: `0.30*ECMWF + 0.25*GEFS + 0.20*Analog + 0.15*Micro + 0.10*NWS_delta`
-7. **Risk of Ruin**: `((1-edge)/(1+edge))^(bankroll/bet_size)`
-8. **Portfolio Correlation**: Geographic and event-type correlation exposure limits
+Run the local verification gate:
 
-## Weather Data Sources
+```bash
+black --check src tests
+flake8 src/ tests/ --max-line-length=120 --ignore=E501,W503
+pytest tests/ -q
+```
 
-- **NWS API**: Official US probabilistic forecasts (PoP, gridpoint data)
-- **Open-Meteo**: Free ensemble forecasts (ECMWF, GFS, ICON models)
-- **Analog Years**: Historical pattern matching (ENSO, NAO, PDO phases)
-- **Microclimate**: Urban heat island, elevation, proximity adjustments
+Current local proof:
 
-## State Management
+- Black passes for `src` and `tests`.
+- flake8 passes for `src` and `tests`.
+- pytest passes with 4 tests covering formula behavior and SQLite state persistence.
 
-All data persists in SQLite:
-- `positions`: Open/closed trades with model metadata
-- `weather_forecasts`: Blended model outputs per forecast cycle
-- `market_snapshots`: Orderbook history for backtesting
-- `portfolio_state`: Bankroll, exposure, P&L, drawdown tracking
+Remote CI is not yet restored. GitHub rejected the initial workflow push because
+the current token lacked `workflow` scope. CI restoration is tracked in
+[CHA-1040](https://linear.app/chainbytes/issue/CHA-1040/prod-001-restore-ci-and-release-verification-for-marketedge).
 
-## Risk Controls
+## Quant Engine
 
-- Max 20% bankroll in single position
-- Max 30% in correlated group (same region/event type)
-- 1/4 Kelly sizing with confidence adjustment
-- LAS-based size reduction (skip if spread > 15%)
-- Auto-close within 1 day of expiration to avoid settlement fees
-- Monthly RoR target < 1%
+`src/formulas.py` currently implements:
 
-## TUI Dashboard
+- Fee-adjusted edge.
+- Kelly sizing with fractional Kelly.
+- Annualized yield screening.
+- Liquidity-adjusted spread analysis.
+- Bayesian probability updates.
+- Weather model probability blending.
+- Risk of ruin estimation.
+- Correlation exposure estimation.
+- Full opportunity screening.
 
-Hotkeys:
-- `q` — Quit
-- `r` — Refresh data
-- `s` — Trigger market scan
+These formulas are intended to remain market-agnostic as the project expands
+beyond weather.
 
-Widgets:
-- Portfolio summary (bankroll, exposure, P&L)
-- Risk metrics (RoR, max drawdown, VaR)
-- Open positions table
-- Recent signals log
-- Market scanner controls
-- Settings panel
+## Data Sources
+
+The weather implementation is built around:
+
+- Kalshi market data and orderbook access.
+- NWS-style weather forecast inputs.
+- Open-Meteo-style ensemble forecast inputs.
+- Analog and microclimate adjustments.
+
+Provider failure handling, retries, and operator diagnostics are not yet
+production-grade. That work is tracked in
+[CHA-1044](https://linear.app/chainbytes/issue/CHA-1044/prod-005-add-api-resilience-observability-and-operator-diagnostics).
+
+## Safety And Risk Controls
+
+The codebase includes risk concepts such as:
+
+- Max position percentage.
+- Max correlated exposure.
+- Fractional Kelly sizing.
+- Spread-based size reduction.
+- Risk-of-ruin thresholding.
+- Auto-close logic near expiration.
+
+These are not enough for production live trading. Before live use, Market Edge
+needs:
+
+- Explicit live-trading enablement.
+- A global kill switch.
+- Pre-order risk limit enforcement.
+- Daily loss and notional exposure limits.
+- Structured audit logs for every signal, refusal, intent, and result.
+
+That work is tracked in
+[CHA-1041](https://linear.app/chainbytes/issue/CHA-1041/prod-002-add-explicit-live-trading-safety-gates-and-kill-switches).
+
+## Development Workflow
+
+Use a branch per Linear issue:
+
+```bash
+git checkout main
+git pull
+git checkout -b codex/cha-1045-production-readme
+```
+
+Before opening a PR:
+
+```bash
+black --check src tests
+flake8 src/ tests/ --max-line-length=120 --ignore=E501,W503
+pytest tests/ -q
+```
+
+Expected PRs should include:
+
+- The Linear issue identifier.
+- A concise explanation of the change.
+- Verification commands and results.
+- Any known gaps or follow-up issues.
+
+## Open-Source Readiness
+
+This repository is currently private. Before making it public:
+
+- Select and add a license.
+- Add a security policy.
+- Confirm no secrets or private operational details are committed.
+- Restore CI.
+- Make the README clear that live trading is not production-ready.
+- Decide whether Linear links should remain in public documentation or move to a public roadmap.
+
+No license has been selected yet. Do not assume open-source rights until a
+license file is added.
+
+## Security
+
+Do not commit real API keys or trading credentials. Use `.env` for local secrets.
+
+There is not yet a formal vulnerability disclosure policy. Add one before any
+public release.
+
+## Production Readiness
+
+Market Edge should not be represented as production-ready until these are done:
+
+1. [CHA-1040](https://linear.app/chainbytes/issue/CHA-1040/prod-001-restore-ci-and-release-verification-for-marketedge): CI and release verification.
+2. [CHA-1041](https://linear.app/chainbytes/issue/CHA-1041/prod-002-add-explicit-live-trading-safety-gates-and-kill-switches): live-trading safety gates.
+3. [CHA-1042](https://linear.app/chainbytes/issue/CHA-1042/prod-003-split-market-adapters-data-providers-and-strategies-into): extensible interfaces.
+4. [CHA-1043](https://linear.app/chainbytes/issue/CHA-1043/prod-004-harden-persistence-with-migrations-configurable-storage-and): migrations and audit trails.
+5. [CHA-1044](https://linear.app/chainbytes/issue/CHA-1044/prod-005-add-api-resilience-observability-and-operator-diagnostics): resilience and diagnostics.
+
+Until then, treat the project as a local research and dry-run system.
