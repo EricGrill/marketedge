@@ -126,6 +126,14 @@ database paths and schema migrations are tracked in
 
 ## Common Commands
 
+Open the web dashboard:
+
+```bash
+python -m http.server 4173 -d web
+```
+
+Then visit `http://localhost:4173`.
+
 Analyze a specific market opportunity:
 
 ```bash
