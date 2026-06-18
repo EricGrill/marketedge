@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Market Edge Dashboard</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="terminal-shell" aria-label="Market Edge weather quant dashboard">
+      <header class="topbar">
+        <section class="brand">
+          <div class="brand-mark">ME</div>
+          <div class="brand-copy">
+            <strong>MARKET EDGE</strong>
+            <span>WEATHER &middot; QUANT</span>
+          </div>
+        </section>
+
+        <div class="divider"></div>
+
+        <section class="status-pill">
+          <span class="pulse"></span>
+          <strong>DRY RUN</strong>
+        </section>
+
+        <div class="divider"></div>
+
+        <section class="clock">
+          <strong id="clock">--:--:--</strong>
+          <span>ET</span>
+        </section>
+
+        <div class="divider"></div>
+
+        <section class="venue-health">
+          <span></span>
+          <strong>KALSHI</strong>
+          <b>23ms</b>
+        </section>
+
+        <section class="account-strip">
+          <div>
+            <span>ACCOUNT EQUITY</span>
+            <strong>$24,815.40</strong>
+          </div>
+          <div>
+            <span>DAY P&amp;L</span>
+            <strong class="positive">+$1,284.20 <small>+5.4%</small></strong>
+          </div>
+          <div>
+            <span>BUYING POWER</span>
+            <strong>$8,940.00</strong>
+          </div>
+        </section>
+      </header>
+
+      <section class="dashboard-grid">
+        <aside class="panel market-list-panel">
+          <div class="panel-head blue">
+            <strong>WEATHER MARKETS</strong>
+            <span id="open-count">0 OPEN</span>
+          </div>
+          <div class="market-list" id="market-list"></div>
+        </aside>
+
+        <section class="panel market-detail-panel">
+          <div class="panel-head blue">
+            <strong>MARKET DETAIL</strong>
+            <span id="selected-ticker"></span>
+          </div>
+
+          <section class="price-header">
+            <div class="market-title-row">
+              <span class="city-badge" id="selected-city"></span>
+              <strong id="selected-title"></strong>
+              <span class="signal-badge" id="selected-signal"></span>
+            </div>
+            <div class="price-grid">
+              <div>
+                <span class="eyebrow" id="selected-contract-label"></span>
+                <div class="last-price-row">
+                  <strong id="selected-last"></strong>
+                  <span id="selected-change"></span>
+                </div>
+              </div>
+              <dl class="quote-grid">
+                <dt>BID</dt>
+                <dt>ASK</dt>
+                <dd class="bid" id="selected-bid"></dd>
+                <dd class="ask" id="selected-ask"></dd>
+                <dt>SPREAD</dt>
+                <dt>24H VOL</dt>
+                <dd id="selected-spread"></dd>
+                <dd id="selected-volume"></dd>
+              </dl>
+            </div>
+          </section>
+
+          <section class="edge-banner">
+            <div>
+              <span>MODEL EDGE</span>
+              <strong id="selected-edge"></strong>
+            </div>
+            <dl>
+              <dt>MODEL PROB</dt>
+              <dd id="selected-model"></dd>
+              <dt>MKT IMPLIED</dt>
+              <dd id="selected-market"></dd>
+              <dt>FAIR VALUE</dt>
+              <dd id="selected-fair"></dd>
+            </dl>
+            <div class="confidence">
+              <div>
+                <span>MODEL CONFIDENCE</span>
+                <strong id="selected-confidence"></strong>
+              </div>
+              <div class="confidence-track">
+                <div id="confidence-bar"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="distribution">
+            <div class="section-row">
+              <strong>FORECAST HIGH &middot; PROBABILITY DISTRIBUTION</strong>
+              <span><i class="model-chip"></i> MODEL</span>
+              <span><i class="market-chip"></i> MARKET</span>
+            </div>
+            <div id="distribution-list"></div>
+          </section>
+
+          <footer class="model-foot">
+            <span>Ensemble: GFS &middot; ECMWF &middot; HRRR &middot; NBM &middot; MOS</span>
+            <span>model refreshed 14:48 ET</span>
+          </footer>
+        </section>
+
+        <aside class="trade-column">
+          <section class="panel orderbook-panel">
+            <div class="panel-head slate">
+              <strong>ORDER BOOK</strong>
+              <span id="book-spread"></span>
+            </div>
+            <div class="book-head">
+              <span>PRICE</span>
+              <span>SIZE</span>
+            </div>
+            <div class="orderbook" id="orderbook"></div>
+          </section>
+
+          <section class="panel ticket-panel">
+            <div class="panel-head slate">
+              <strong>ORDER TICKET</strong>
+            </div>
+            <div class="ticket-body">
+              <div class="side-toggle" role="group" aria-label="Order side">
+                <button id="buy-button" type="button">BUY &middot; YES</button>
+                <button id="sell-button" type="button">SELL &middot; NO</button>
+              </div>
+              <div class="contract-card">
+                <strong id="ticket-contract"></strong>
+                <span id="ticket-ticker"></span>
+              </div>
+              <div class="ticket-controls">
+                <label>
+                  <span>QUANTITY</span>
+                  <div class="stepper">
+                    <button type="button" id="qty-down" aria-label="Decrease quantity">&minus;</button>
+                    <strong id="ticket-qty"></strong>
+                    <button type="button" id="qty-up" aria-label="Increase quantity">+</button>
+                  </div>
+                </label>
+                <label>
+                  <span>LIMIT PRICE</span>
+                  <div class="stepper">
+                    <button type="button" id="limit-down" aria-label="Decrease limit price">&minus;</button>
+                    <strong id="ticket-limit"></strong>
+                    <button type="button" id="limit-up" aria-label="Increase limit price">+</button>
+                  </div>
+                </label>
+              </div>
+              <dl class="ticket-summary">
+                <dt id="ticket-r1-label"></dt>
+                <dd id="ticket-r1-value"></dd>
+                <dt>MAX PAYOUT</dt>
+                <dd id="ticket-payout"></dd>
+                <dt id="ticket-r3-label"></dt>
+                <dd id="ticket-r3-value"></dd>
+              </dl>
+              <button class="submit-order" id="ticket-submit" type="button"></button>
+            </div>
+          </section>
+        </aside>
+
+        <aside class="right-column">
+          <section class="panel positions-panel">
+            <div class="panel-head green">
+              <strong>OPEN POSITIONS</strong>
+              <span>UNREALIZED <b>+$29.40</b></span>
+            </div>
+            <div class="position-head">
+              <span>CONTRACT</span>
+              <span>QTY</span>
+              <span>AVG</span>
+              <span>MARK</span>
+              <span>P&amp;L</span>
+            </div>
+            <div id="positions-list"></div>
+          </section>
+
+          <section class="panel weather-panel">
+            <div class="panel-head amber">
+              <strong id="weather-title">WEATHER FEED &middot; NYC</strong>
+              <span>KNYC &middot; 14:51 ET</span>
+            </div>
+            <div class="weather-body">
+              <div class="current-weather">
+                <div>
+                  <span>CURRENT &middot; CENTRAL PARK</span>
+                  <strong>84&deg;F</strong>
+                </div>
+                <dl>
+                  <div><dt>DEW</dt><dd>61&deg;</dd></div>
+                  <div><dt>WIND</dt><dd>SW 9</dd></div>
+                  <div><dt>RH</dt><dd>46%</dd></div>
+                </dl>
+                <b>&uarr; +6&deg; since 11:00</b>
+              </div>
+              <strong class="subhead">TODAY'S HIGH &middot; MODEL GUIDANCE</strong>
+              <div class="guidance-row">
+                <div><span>GFS</span><strong>88&deg;</strong></div>
+                <div><span>ECMWF</span><strong>89&deg;</strong></div>
+                <div><span>HRRR</span><strong>90&deg;</strong></div>
+                <div><span>NBM</span><strong>88&deg;</strong></div>
+                <div><span>NWS</span><strong>89&deg;</strong></div>
+              </div>
+              <div class="ensemble-row">
+                <span>ENSEMBLE &mu; <b>88.4&deg;</b> &middot; &sigma; <b>1.3&deg;</b> &middot; P(&ge;88&deg;) <b>61%</b></span>
+                <strong>HEAT ADVISORY &middot; THRU 20:00</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel backtest-panel">
+            <div class="panel-head purple">
+              <strong>STRATEGY &middot; BACKTEST</strong>
+              <span>WX-MEANREV v3</span>
+            </div>
+            <div class="stats-grid">
+              <div><span>SHARPE</span><strong>2.14</strong></div>
+              <div><span>WIN RATE</span><strong>58.3%</strong></div>
+              <div><span>RETURN</span><strong class="positive">+37.2%</strong></div>
+              <div><span>MAX DD</span><strong class="negative">&minus;8.1%</strong></div>
+              <div><span>PROFIT FACT</span><strong>1.71</strong></div>
+              <div><span>AVG EDGE</span><strong class="positive">+4.6&cent;</strong></div>
+            </div>
+            <div class="equity-curve">
+              <div>
+                <span>EQUITY CURVE &middot; JAN&ndash;JUN 2026</span>
+                <span>1,284 TRADES</span>
+              </div>
+              <svg viewBox="0 0 400 56" preserveAspectRatio="none" aria-hidden="true">
+                <polygon points="0,52 18,49 38,51 58,44 80,46 102,39 124,42 148,33 170,36 194,27 218,30 242,21 266,24 290,15 316,18 342,11 368,8 400,4 400,56 0,56"></polygon>
+                <polyline points="0,52 18,49 38,51 58,44 80,46 102,39 124,42 148,33 170,36 194,27 218,30 242,21 266,24 290,15 316,18 342,11 368,8 400,4"></polyline>
+              </svg>
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <footer class="fills-bar">
+        <strong>FILLS</strong>
+        <span>14:52:03 <b class="positive">BOT</b> 120 NYC 88&ndash;89&deg; @46&cent; &middot; 14:51:40 <b class="negative">SLD</b> 80 AUS &ge;100&deg; @64&cent; &middot; 14:50:12 <b class="positive">BOT</b> 150 MIA Rain @64&cent; &middot; 14:48:55 <b class="positive">BOT</b> 200 CHI 84&ndash;85&deg; @35&cent; &middot; 14:47:31 <b class="negative">SLD</b> 60 DEN 71&ndash;72&deg; @31&cent;</span>
+        <small>LOCAL &middot; v0.1</small>
+      </footer>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
