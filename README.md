@@ -44,8 +44,9 @@ Market Edge currently includes:
 - An offline backtesting engine for settled prediction-market trade ledgers.
 - Offline settlement outcome loading for CSV/JSONL market-result datasets.
 - Model calibration scoring with Brier score, log loss, and probability buckets.
+- Execution modeling for spread crossing, slippage, partial fills, and queue assumptions.
 - SQLite-backed state for positions, forecasts, market snapshots, and portfolio state.
-- Initial regression tests for formulas, state persistence, settlement loading, calibration, backtesting, and CLI behavior.
+- Initial regression tests for formulas, state persistence, settlement loading, calibration, execution, backtesting, and CLI behavior.
 
 ## Current Architecture
 
@@ -56,6 +57,7 @@ marketedge/
 │   ├── backtesting.py      # Offline replay and backtest metrics
 │   ├── calibration.py      # Forecast calibration scoring
 │   ├── config.py           # Environment-driven configuration
+│   ├── execution.py        # Fill/slippage/queue execution modeling
 │   ├── formulas.py         # Quant engine and screening math
 │   ├── settlements.py      # Offline settlement outcome resolver
 │   ├── state.py            # SQLite state manager and SQLAlchemy models
@@ -72,6 +74,7 @@ marketedge/
 │   ├── test_backtesting.py
 │   ├── test_calibration.py
 │   ├── test_cli.py
+│   ├── test_execution.py
 │   ├── test_formulas.py
 │   ├── test_settlements.py
 │   └── test_state.py
@@ -223,6 +226,25 @@ Forecast CSV/JSONL rows require `timestamp`, `ticker`, and `model_probability`.
 Optional `strategy`, `market_category`, and `event_type` columns are used to
 produce grouped calibration summaries.
 
+Apply simple execution realism before replay:
+
+```python
+from src.execution import ExecutionModel, ExecutionOrder, OrderBookLevel, OrderBookSnapshot
+
+book = OrderBookSnapshot(
+    asks=[OrderBookLevel(price=40, quantity=100), OrderBookLevel(price=41, quantity=100)]
+)
+execution = ExecutionModel().fill(
+    ExecutionOrder(action="buy", contract_side="yes", quantity=120),
+    book,
+)
+executed_trade = ExecutionModel().apply_to_backtest_trade(trade, execution)
+```
+
+Execution metadata is carried into backtest trade results so summaries can show
+requested quantity, filled quantity, unfilled quantity, and effective average
+entry price.
+
 Launch the TUI dashboard:
 
 ```bash
@@ -271,7 +293,7 @@ Current local proof:
 
 - Black passes for `src` and `tests`.
 - flake8 passes for `src` and `tests`.
-- pytest passes with formula, settlement, calibration, backtesting, CLI, and SQLite state coverage.
+- pytest passes with formula, settlement, calibration, execution, backtesting, CLI, and SQLite state coverage.
 
 Remote CI is not yet restored. GitHub rejected the initial workflow push because
 the current token lacked `workflow` scope. CI restoration is tracked in
