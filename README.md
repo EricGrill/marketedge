@@ -43,8 +43,9 @@ Market Edge currently includes:
 - A quant formula engine for opportunity screening and sizing.
 - An offline backtesting engine for settled prediction-market trade ledgers.
 - Offline settlement outcome loading for CSV/JSONL market-result datasets.
+- Model calibration scoring with Brier score, log loss, and probability buckets.
 - SQLite-backed state for positions, forecasts, market snapshots, and portfolio state.
-- Initial regression tests for formulas, state persistence, settlement loading, backtesting, and CLI behavior.
+- Initial regression tests for formulas, state persistence, settlement loading, calibration, backtesting, and CLI behavior.
 
 ## Current Architecture
 
@@ -53,6 +54,7 @@ marketedge/
 ├── src/
 │   ├── cli.py              # Click CLI entry point
 │   ├── backtesting.py      # Offline replay and backtest metrics
+│   ├── calibration.py      # Forecast calibration scoring
 │   ├── config.py           # Environment-driven configuration
 │   ├── formulas.py         # Quant engine and screening math
 │   ├── settlements.py      # Offline settlement outcome resolver
@@ -68,6 +70,7 @@ marketedge/
 ├── tests/
 │   ├── conftest.py
 │   ├── test_backtesting.py
+│   ├── test_calibration.py
 │   ├── test_cli.py
 │   ├── test_formulas.py
 │   ├── test_settlements.py
@@ -201,6 +204,25 @@ provided explicitly; otherwise the resolver derives `100` for YES winners and
 `0` for NO winners. Duplicate, missing, and internally inconsistent settlement
 rows raise `SettlementValidationError`.
 
+Score probability calibration against local outcomes:
+
+```python
+from src.calibration import CalibrationScorer, load_forecasts_csv
+from src.settlements import SettlementResolver, load_settlements_csv
+
+forecasts = load_forecasts_csv("path/to/forecasts.csv")
+outcomes = load_settlements_csv("path/to/settlements.csv")
+summary = CalibrationScorer(bucket_size=0.1).score(
+    forecasts,
+    SettlementResolver(outcomes),
+)
+dashboard_payload = summary.to_dict()
+```
+
+Forecast CSV/JSONL rows require `timestamp`, `ticker`, and `model_probability`.
+Optional `strategy`, `market_category`, and `event_type` columns are used to
+produce grouped calibration summaries.
+
 Launch the TUI dashboard:
 
 ```bash
@@ -249,7 +271,7 @@ Current local proof:
 
 - Black passes for `src` and `tests`.
 - flake8 passes for `src` and `tests`.
-- pytest passes with formula, settlement, backtesting, CLI, and SQLite state coverage.
+- pytest passes with formula, settlement, calibration, backtesting, CLI, and SQLite state coverage.
 
 Remote CI is not yet restored. GitHub rejected the initial workflow push because
 the current token lacked `workflow` scope. CI restoration is tracked in
