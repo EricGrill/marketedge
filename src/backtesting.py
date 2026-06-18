@@ -11,6 +11,12 @@ from statistics import mean, pstdev
 from typing import Any, Dict, Iterable, List
 
 
+def _json_safe_float(value: float) -> float | None:
+    if math.isfinite(value):
+        return value
+    return None
+
+
 @dataclass(frozen=True)
 class BacktestTradeInput:
     """Trade replay input for one prediction-market contract."""
@@ -97,10 +103,10 @@ class BacktestSummary:
             "net_pnl": self.net_pnl,
             "return_pct": self.return_pct,
             "max_drawdown": self.max_drawdown,
-            "profit_factor": self.profit_factor,
+            "profit_factor": _json_safe_float(self.profit_factor),
             "average_edge": self.average_edge,
             "average_confidence": self.average_confidence,
-            "sharpe_like": self.sharpe_like,
+            "sharpe_like": _json_safe_float(self.sharpe_like),
             "trades": [
                 {
                     "timestamp": trade.timestamp.isoformat(),

@@ -246,24 +246,24 @@
           <section class="panel backtest-panel">
             <div class="panel-head purple">
               <strong>STRATEGY &middot; BACKTEST</strong>
-              <span>WX-MEANREV v3</span>
+              <span id="backtest-strategy-label">WX-MEANREV v3</span>
             </div>
             <div class="stats-grid">
-              <div><span>SHARPE</span><strong>2.14</strong></div>
-              <div><span>WIN RATE</span><strong>58.3%</strong></div>
-              <div><span>RETURN</span><strong class="positive">+37.2%</strong></div>
-              <div><span>MAX DD</span><strong class="negative">&minus;8.1%</strong></div>
-              <div><span>PROFIT FACT</span><strong>1.71</strong></div>
-              <div><span>AVG EDGE</span><strong class="positive">+4.6&cent;</strong></div>
+              <div><span>SHARPE</span><strong id="backtest-sharpe">2.14</strong></div>
+              <div><span>WIN RATE</span><strong id="backtest-win-rate">58.3%</strong></div>
+              <div><span>RETURN</span><strong id="backtest-return" class="positive">+37.2%</strong></div>
+              <div><span>MAX DD</span><strong id="backtest-max-dd" class="negative">&minus;8.1%</strong></div>
+              <div><span>PROFIT FACT</span><strong id="backtest-profit-factor">1.71</strong></div>
+              <div><span>AVG EDGE</span><strong id="backtest-avg-edge" class="positive">+4.6&cent;</strong></div>
             </div>
             <div class="equity-curve">
               <div>
-                <span>EQUITY CURVE &middot; JAN&ndash;JUN 2026</span>
-                <span>1,284 TRADES</span>
+                <span id="backtest-equity-label">EQUITY CURVE &middot; JAN&ndash;JUN 2026</span>
+                <span id="backtest-trade-count">1,284 TRADES</span>
               </div>
               <svg viewBox="0 0 400 56" preserveAspectRatio="none" aria-hidden="true">
-                <polygon points="0,52 18,49 38,51 58,44 80,46 102,39 124,42 148,33 170,36 194,27 218,30 242,21 266,24 290,15 316,18 342,11 368,8 400,4 400,56 0,56"></polygon>
-                <polyline points="0,52 18,49 38,51 58,44 80,46 102,39 124,42 148,33 170,36 194,27 218,30 242,21 266,24 290,15 316,18 342,11 368,8 400,4"></polyline>
+                <polygon id="backtest-equity-area" points="0,52 18,49 38,51 58,44 80,46 102,39 124,42 148,33 170,36 194,27 218,30 242,21 266,24 290,15 316,18 342,11 368,8 400,4 400,56 0,56"></polygon>
+                <polyline id="backtest-equity-line" points="0,52 18,49 38,51 58,44 80,46 102,39 124,42 148,33 170,36 194,27 218,30 242,21 266,24 290,15 316,18 342,11 368,8 400,4"></polyline>
               </svg>
             </div>
           </section>

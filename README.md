@@ -36,12 +36,14 @@ Known production-readiness gaps are tracked in Linear:
 Market Edge currently includes:
 
 - A Click-based CLI for dashboard, analysis, strategy, portfolio, weather, and formula commands.
+- A static web dashboard that can load generated backtest summaries without requiring market accounts.
 - A Textual TUI dashboard scaffold.
 - A Kalshi REST/WebSocket client and weather market scanner.
 - Weather data fetchers and model-blending support.
 - A quant formula engine for opportunity screening and sizing.
+- An offline backtesting engine for settled prediction-market trade ledgers.
 - SQLite-backed state for positions, forecasts, market snapshots, and portfolio state.
-- Initial regression tests for core formulas and state persistence.
+- Initial regression tests for formulas, state persistence, backtesting, and CLI behavior.
 
 ## Current Architecture
 
@@ -49,6 +51,7 @@ Market Edge currently includes:
 marketedge/
 ├── src/
 │   ├── cli.py              # Click CLI entry point
+│   ├── backtesting.py      # Offline replay and backtest metrics
 │   ├── config.py           # Environment-driven configuration
 │   ├── formulas.py         # Quant engine and screening math
 │   ├── state.py            # SQLite state manager and SQLAlchemy models
@@ -62,8 +65,16 @@ marketedge/
 │       └── data.py         # Weather data fetchers and model blend inputs
 ├── tests/
 │   ├── conftest.py
+│   ├── test_backtesting.py
+│   ├── test_cli.py
 │   ├── test_formulas.py
 │   └── test_state.py
+├── web/
+│   ├── app.js              # Static dashboard interactions
+│   ├── data/
+│   │   └── backtest-summary.json
+│   ├── index.html
+│   └── styles.css
 ├── .env.example
 ├── .gitignore
 ├── README.md
@@ -155,9 +166,19 @@ Run an offline backtest from a CSV trade ledger:
 python -m src.cli backtest path/to/trades.csv --bankroll 10000
 ```
 
+Generate the dashboard data file from the same ledger:
+
+```bash
+python -m src.cli backtest path/to/trades.csv \
+  --bankroll 10000 \
+  --json-out web/data/backtest-summary.json
+```
+
 Required CSV columns: `timestamp`, `ticker`, `side`, `entry_price`, `exit_price`,
 `quantity`, and `model_probability`. Optional columns include `confidence`,
-`entry_fee`, and `exit_fee`.
+`entry_fee`, and `exit_fee`. When `web/data/backtest-summary.json` exists, the
+web dashboard loads it into the backtest panel; otherwise the dashboard keeps
+its static no-account sample metrics.
 
 Launch the TUI dashboard:
 
@@ -207,7 +228,7 @@ Current local proof:
 
 - Black passes for `src` and `tests`.
 - flake8 passes for `src` and `tests`.
-- pytest passes with 4 tests covering formula behavior and SQLite state persistence.
+- pytest passes with formula, backtesting, CLI, and SQLite state coverage.
 
 Remote CI is not yet restored. GitHub rejected the initial workflow push because
 the current token lacked `workflow` scope. CI restoration is tracked in

@@ -20,6 +20,17 @@ const MID = "\u00b7";
 
 const temp = (value) => `${value}${DEG}`;
 const range = (low, high) => `${low}${EN_DASH}${high}${DEG}`;
+const formatPercent = (value, digits = 1, signed = false) => {
+  if (!Number.isFinite(value)) return "N/A";
+  const sign = signed && value > 0 ? "+" : "";
+  return `${sign}${(value * 100).toFixed(digits)}%`;
+};
+const formatRatio = (value) => Number.isFinite(value) ? value.toFixed(2) : "N/A";
+const formatMetricEdge = (value) => {
+  if (!Number.isFinite(value)) return "N/A";
+  const centsValue = value * 100;
+  return `${centsValue > 0 ? "+" : ""}${centsValue.toFixed(1)}${CENT}`;
+};
 
 const distributions = {
   nyc: [[`${LE}${temp(85)}`, 5, 4], [range(86, 87), 18, 16], [range(88, 89), 33, 24], [range(90, 91), 28, 31], [range(92, 93), 12, 14], [`${GE}${temp(94)}`, 4, 5]],
@@ -73,6 +84,12 @@ function selectedMarket() {
 
 function setText(id, value) {
   $(id).textContent = value;
+}
+
+function setMetric(id, value, className = "") {
+  const el = $(id);
+  el.textContent = value;
+  el.className = className;
 }
 
 function colorCity(el, city) {
@@ -255,6 +272,52 @@ function bindControls() {
   });
 }
 
+function pointsFromEquityCurve(equityCurve) {
+  if (!Array.isArray(equityCurve) || equityCurve.length === 0) {
+    return null;
+  }
+
+  const equities = equityCurve.map((point) => point.equity);
+  const minEquity = Math.min(...equities);
+  const maxEquity = Math.max(...equities);
+  const span = Math.max(maxEquity - minEquity, 1);
+  const lastIndex = Math.max(equityCurve.length - 1, 1);
+
+  return equityCurve.map((point, index) => {
+    const x = index / lastIndex * 400;
+    const y = 52 - ((point.equity - minEquity) / span * 48);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+}
+
+function renderBacktestSummary(summary) {
+  setText("backtest-strategy-label", "ENGINE OUTPUT");
+  setMetric("backtest-sharpe", formatRatio(summary.sharpe_like));
+  setMetric("backtest-win-rate", formatPercent(summary.win_rate, 1));
+  setMetric("backtest-return", formatPercent(summary.return_pct, 1, true), edgeClass(summary.return_pct));
+  setMetric("backtest-max-dd", `${MINUS}${formatPercent(summary.max_drawdown, 1)}`, summary.max_drawdown > 0 ? "negative" : "");
+  setMetric("backtest-profit-factor", formatRatio(summary.profit_factor));
+  setMetric("backtest-avg-edge", formatMetricEdge(summary.average_edge), edgeClass(summary.average_edge));
+  setText("backtest-equity-label", "EQUITY CURVE " + MID + " GENERATED BACKTEST");
+  setText("backtest-trade-count", `${summary.total_trades.toLocaleString()} TRADES`);
+
+  const points = pointsFromEquityCurve(summary.equity_curve);
+  if (points) {
+    $("backtest-equity-line").setAttribute("points", points);
+    $("backtest-equity-area").setAttribute("points", `${points} 400,56 0,56`);
+  }
+}
+
+async function loadBacktestSummary() {
+  try {
+    const response = await fetch("./data/backtest-summary.json", { cache: "no-store" });
+    if (!response.ok) return;
+    renderBacktestSummary(await response.json());
+  } catch {
+    // Keep the static placeholder metrics when no generated summary exists.
+  }
+}
+
 function render() {
   renderMarkets();
   renderDetail();
@@ -267,4 +330,5 @@ function render() {
 bindControls();
 renderClock();
 render();
+loadBacktestSummary();
 window.setInterval(renderClock, 1000);
