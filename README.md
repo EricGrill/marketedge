@@ -45,8 +45,9 @@ Market Edge currently includes:
 - Offline settlement outcome loading for CSV/JSONL market-result datasets.
 - Model calibration scoring with Brier score, log loss, and probability buckets.
 - Execution modeling for spread crossing, slippage, partial fills, and queue assumptions.
+- Local JSONL experiment registry for reproducible research runs and artifacts.
 - SQLite-backed state for positions, forecasts, market snapshots, and portfolio state.
-- Initial regression tests for formulas, state persistence, settlement loading, calibration, execution, backtesting, and CLI behavior.
+- Initial regression tests for formulas, state persistence, settlement loading, calibration, execution, experiments, backtesting, and CLI behavior.
 
 ## Current Architecture
 
@@ -58,6 +59,7 @@ marketedge/
 │   ├── calibration.py      # Forecast calibration scoring
 │   ├── config.py           # Environment-driven configuration
 │   ├── execution.py        # Fill/slippage/queue execution modeling
+│   ├── experiments.py      # Local experiment registry
 │   ├── formulas.py         # Quant engine and screening math
 │   ├── settlements.py      # Offline settlement outcome resolver
 │   ├── state.py            # SQLite state manager and SQLAlchemy models
@@ -75,6 +77,7 @@ marketedge/
 │   ├── test_calibration.py
 │   ├── test_cli.py
 │   ├── test_execution.py
+│   ├── test_experiments.py
 │   ├── test_formulas.py
 │   ├── test_settlements.py
 │   └── test_state.py
@@ -245,6 +248,24 @@ Execution metadata is carried into backtest trade results so summaries can show
 requested quantity, filled quantity, unfilled quantity, and effective average
 entry price.
 
+Record reproducible experiment runs:
+
+```bash
+python -m src.cli experiments create \
+  --strategy wx-meanrev \
+  --param edge=0.04 \
+  --data-ref data/snapshots/wx.jsonl \
+  --artifact web/data/backtest-summary.json \
+  --model-version v1
+
+python -m src.cli experiments list
+python -m src.cli experiments show <run-id>
+```
+
+Experiment records are stored as append-only JSONL in `data/experiments.jsonl`
+by default. Records include strategy name, parameters, data references,
+artifacts, model version, git commit, and timestamps.
+
 Launch the TUI dashboard:
 
 ```bash
@@ -293,7 +314,7 @@ Current local proof:
 
 - Black passes for `src` and `tests`.
 - flake8 passes for `src` and `tests`.
-- pytest passes with formula, settlement, calibration, execution, backtesting, CLI, and SQLite state coverage.
+- pytest passes with formula, settlement, calibration, execution, experiment, backtesting, CLI, and SQLite state coverage.
 
 Remote CI is not yet restored. GitHub rejected the initial workflow push because
 the current token lacked `workflow` scope. CI restoration is tracked in
