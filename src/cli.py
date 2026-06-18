@@ -2,13 +2,15 @@
 """CLI entry point for Kalshi Weather Quant Trading."""
 
 import asyncio
+import json
 import os
 import sys
+from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 from rich.text import Text
 
 from src.config import kalshi_config, trading_config, weather_config
@@ -222,7 +224,12 @@ def _format_ratio(value: float) -> str:
     show_default=True,
     help="Initial bankroll for replay metrics.",
 )
-def backtest(path, bankroll):
+@click.option(
+    "--json-out",
+    type=click.Path(dir_okay=False, writable=True),
+    help="Write a dashboard-ready JSON summary to this path.",
+)
+def backtest(path, bankroll, json_out):
     """Run an offline backtest from a CSV trade ledger."""
     trades = load_trades_csv(path)
     summary = BacktestEngine().run(trades, initial_bankroll=bankroll)
@@ -244,6 +251,14 @@ def backtest(path, bankroll):
     table.add_row("Ending Bankroll", f"${summary.ending_bankroll:,.2f}")
 
     console.print(table)
+
+    if json_out:
+        output_path = Path(json_out)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8") as handle:
+            json.dump(summary.to_dict(), handle, indent=2, allow_nan=False)
+            handle.write("\n")
+        console.print(f"[green]Wrote dashboard summary to {output_path}[/green]")
 
 
 @cli.command()

@@ -67,6 +67,22 @@ def test_backtest_empty_input_returns_neutral_summary():
     assert summary.equity_curve == []
 
 
+def test_backtest_summary_serializes_non_finite_ratios_as_null():
+    trade = BacktestTradeInput(
+        timestamp=datetime(2026, 6, 18, 14, 0),
+        ticker="HIGHNY-26JUN18-B88.5",
+        side="yes",
+        entry_price=40,
+        exit_price=100,
+        quantity=10,
+        model_probability=0.62,
+    )
+
+    payload = BacktestEngine().run([trade], initial_bankroll=1_000).to_dict()
+
+    assert payload["profit_factor"] is None
+
+
 def test_backtest_validates_trade_bounds():
     bad_trade = BacktestTradeInput(
         timestamp=datetime(2026, 6, 18, 14, 0),
