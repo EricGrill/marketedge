@@ -42,8 +42,9 @@ Market Edge currently includes:
 - Weather data fetchers and model-blending support.
 - A quant formula engine for opportunity screening and sizing.
 - An offline backtesting engine for settled prediction-market trade ledgers.
+- Offline settlement outcome loading for CSV/JSONL market-result datasets.
 - SQLite-backed state for positions, forecasts, market snapshots, and portfolio state.
-- Initial regression tests for formulas, state persistence, backtesting, and CLI behavior.
+- Initial regression tests for formulas, state persistence, settlement loading, backtesting, and CLI behavior.
 
 ## Current Architecture
 
@@ -54,6 +55,7 @@ marketedge/
 │   ├── backtesting.py      # Offline replay and backtest metrics
 │   ├── config.py           # Environment-driven configuration
 │   ├── formulas.py         # Quant engine and screening math
+│   ├── settlements.py      # Offline settlement outcome resolver
 │   ├── state.py            # SQLite state manager and SQLAlchemy models
 │   ├── api/
 │   │   └── client.py       # Kalshi REST/WebSocket client and market scanner
@@ -68,6 +70,7 @@ marketedge/
 │   ├── test_backtesting.py
 │   ├── test_cli.py
 │   ├── test_formulas.py
+│   ├── test_settlements.py
 │   └── test_state.py
 ├── web/
 │   ├── app.js              # Static dashboard interactions
@@ -180,6 +183,24 @@ Required CSV columns: `timestamp`, `ticker`, `side`, `entry_price`, `exit_price`
 web dashboard loads it into the backtest panel; otherwise the dashboard keeps
 its static no-account sample metrics.
 
+Load local settlement outcomes for resolved markets:
+
+```python
+from src.backtesting import BacktestEngine, load_trades_csv
+from src.settlements import SettlementResolver, load_settlements_csv
+
+trades = load_trades_csv("path/to/trades.csv")
+outcomes = load_settlements_csv("path/to/settlements.csv")
+settled_trades = SettlementResolver(outcomes).settle_trades(trades)
+summary = BacktestEngine().run(settled_trades, initial_bankroll=10000)
+```
+
+Settlement CSV/JSONL rows require `ticker`, `settled_at`, and `winning_side`.
+`yes_settlement_price`, `settlement_value`, or `settlement_price` may be
+provided explicitly; otherwise the resolver derives `100` for YES winners and
+`0` for NO winners. Duplicate, missing, and internally inconsistent settlement
+rows raise `SettlementValidationError`.
+
 Launch the TUI dashboard:
 
 ```bash
@@ -228,7 +249,7 @@ Current local proof:
 
 - Black passes for `src` and `tests`.
 - flake8 passes for `src` and `tests`.
-- pytest passes with formula, backtesting, CLI, and SQLite state coverage.
+- pytest passes with formula, settlement, backtesting, CLI, and SQLite state coverage.
 
 Remote CI is not yet restored. GitHub rejected the initial workflow push because
 the current token lacked `workflow` scope. CI restoration is tracked in
