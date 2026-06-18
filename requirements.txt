@@ -1,0 +1,28 @@
+# Kalshi Weather Quant Trading CLI
+# Install: pip install -r requirements.txt
+
+# Core
+httpx>=0.27.0
+websockets>=12.0
+pydantic>=2.0
+python-dotenv>=1.0.0
+click>=8.1.0
+rich>=13.0.0
+textual>=0.52.0
+
+# Data & Math
+numpy>=1.26.0
+pandas>=2.1.0
+scipy>=1.12.0
+
+# Weather Data
+requests>=2.31.0
+
+# State & Storage
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+
+# Dev
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+black>=24.0.0
