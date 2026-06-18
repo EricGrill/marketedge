@@ -14,6 +14,7 @@ from rich.text import Text
 from src.config import kalshi_config, trading_config, weather_config
 from src.state import StateManager
 from src.formulas import QuantEngine
+from src.backtesting import BacktestEngine, load_trades_csv
 from src.api.client import KalshiRestClient
 from src.strategies.weather import WeatherTradingStrategy
 from src.tui.app import KalshiQuantApp
@@ -31,8 +32,10 @@ def cli(ctx, env):
 
         load_dotenv(env)
     ctx.ensure_object(dict)
-    ctx.obj["state"] = StateManager()
     ctx.obj["quant"] = QuantEngine()
+    state_commands = {"dashboard", "analyze", "trade", "positions", "portfolio"}
+    if ctx.invoked_subcommand in state_commands:
+        ctx.obj["state"] = StateManager()
 
 
 @cli.command()
@@ -200,6 +203,45 @@ def portfolio(ctx):
     table.add_row("MTD P&L", f"${portfolio.mtd_pnl:,.2f}")
     table.add_row("YTD P&L", f"${portfolio.ytd_pnl:,.2f}")
     table.add_row("Max Drawdown", f"{portfolio.max_drawdown:.2%}")
+
+    console.print(table)
+
+
+def _format_ratio(value: float) -> str:
+    if value == float("inf"):
+        return "inf"
+    return f"{value:.2f}"
+
+
+@cli.command()
+@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--bankroll",
+    type=float,
+    default=trading_config.initial_bankroll,
+    show_default=True,
+    help="Initial bankroll for replay metrics.",
+)
+def backtest(path, bankroll):
+    """Run an offline backtest from a CSV trade ledger."""
+    trades = load_trades_csv(path)
+    summary = BacktestEngine().run(trades, initial_bankroll=bankroll)
+
+    table = Table(title=f"Backtest: {path}")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+
+    table.add_row("Trades", str(summary.total_trades))
+    table.add_row("Win Rate", f"{summary.win_rate:.2%}")
+    table.add_row("Net P&L", f"${summary.net_pnl:,.2f}")
+    table.add_row("Return", f"{summary.return_pct:.2%}")
+    table.add_row("Max Drawdown", f"{summary.max_drawdown:.2%}")
+    table.add_row("Profit Factor", _format_ratio(summary.profit_factor))
+    table.add_row("Average Edge", f"{summary.average_edge:.2%}")
+    table.add_row("Average Confidence", f"{summary.average_confidence:.2%}")
+    table.add_row("Sharpe-like", f"{summary.sharpe_like:.2f}")
+    table.add_row("Fees", f"${summary.total_fees:,.2f}")
+    table.add_row("Ending Bankroll", f"${summary.ending_bankroll:,.2f}")
 
     console.print(table)
 
