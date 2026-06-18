@@ -55,6 +55,7 @@ class BacktestTradeResult:
     net_pnl: float
     return_on_risk: float
     won: bool
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -126,6 +127,7 @@ class BacktestSummary:
                     "net_pnl": trade.net_pnl,
                     "return_on_risk": trade.return_on_risk,
                     "won": trade.won,
+                    "metadata": trade.metadata,
                 }
                 for trade in self.trades
             ],
@@ -207,6 +209,7 @@ class BacktestEngine:
             net_pnl=net_pnl,
             return_on_risk=return_on_risk,
             won=net_pnl > 0,
+            metadata=trade.metadata,
         )
 
     def _summarize(
