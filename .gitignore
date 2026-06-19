@@ -30,6 +30,8 @@ wheels/
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/*.jsonl
+web/data/dashboard.json
 
 # IDE
 .vscode/

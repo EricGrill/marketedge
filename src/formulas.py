@@ -1,4 +1,4 @@
-# kalshi_weather_quant/src/formulas.py
+# marketedge/src/formulas.py
 """Quant formula engine for Kalshi weather prediction markets."""
 
 from dataclasses import dataclass

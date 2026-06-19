@@ -42,7 +42,7 @@ const distributions = {
   ausHeat: [["YES", 60, 64], ["NO", 40, 36]],
 };
 
-const markets = [
+let markets = [
   { id: "NYC-88", city: "NYC", ticker: "HIGHNY-26JUN18-B88.5", title: `NYC ${MID} Daily High`, bracket: range(88, 89), last: 24, bid: 23, ask: 25, model: 33, vol: "142K", ch: 2, conf: 82, dist: "nyc" },
   { id: "NYC-90", city: "NYC", ticker: "HIGHNY-26JUN18-B90.5", title: `NYC ${MID} Daily High`, bracket: range(90, 91), last: 31, bid: 30, ask: 32, model: 28, vol: "118K", ch: -1, conf: 64, dist: "nyc" },
   { id: "NYC-86", city: "NYC", ticker: "HIGHNY-26JUN18-B86.5", title: `NYC ${MID} Daily High`, bracket: range(86, 87), last: 16, bid: 15, ask: 17, model: 18, vol: "74K", ch: 1, conf: 55, dist: "nyc" },
@@ -54,7 +54,7 @@ const markets = [
   { id: "BOS-79", city: "BOS", ticker: "HIGHBOS-26JUN18-B79.5", title: `Boston ${MID} Daily High`, bracket: range(79, 80), last: 44, bid: 43, ask: 45, model: 52, vol: "39K", ch: 2, conf: 74, dist: "bos" },
 ].map((market) => ({ ...market, edge: market.model - market.last }));
 
-const positions = [
+let positions = [
   [`NYC ${range(88, 89)}`, "YES", 300, `19${CENT}`, `24${CENT}`, "+$15.00", "+26.3%", true],
   ["MIA Rain", "YES", 150, `64${CENT}`, `71${CENT}`, "+$10.50", "+10.9%", true],
   [`CHI ${range(84, 85)}`, "YES", 200, `35${CENT}`, `38${CENT}`, "+$6.00", "+8.6%", true],
@@ -178,7 +178,7 @@ function renderDetail() {
 
 function renderDistribution() {
   const market = selectedMarket();
-  const rows = distributions[market.dist];
+  const rows = distributions[market.dist] ?? [[market.bracket, market.model, market.last]];
   const maxValue = Math.max(...rows.map((row) => Math.max(row[1], row[2])));
   $("distribution-list").replaceChildren(...rows.map(([label, model, marketValue]) => {
     const active = label === market.bracket;
@@ -259,6 +259,94 @@ function renderPositions() {
   }));
 }
 
+function normalizeDashboardMarket(market, index) {
+  const last = Math.round(Number(market.last ?? market.last_price ?? market.yes_ask ?? 0));
+  const bid = Math.round(Number(market.bid ?? market.yes_bid ?? Math.max(last - 1, 1)));
+  const ask = Math.round(Number(market.ask ?? market.yes_ask ?? Math.min(last + 1, 99)));
+  const rawModel = market.model ?? (market.model_probability != null ? market.model_probability * 100 : last);
+  const model = Math.round(Number(rawModel));
+  const city = market.city || cityFromTicker(market.ticker);
+  return {
+    id: market.id || market.ticker || `generated-${index}`,
+    city,
+    ticker: market.ticker || `GENERATED-${index}`,
+    title: market.title || `${city} ${MID} Generated Market`,
+    bracket: market.bracket || "YES",
+    last,
+    bid,
+    ask,
+    model,
+    vol: formatVolume(market.volume ?? market.volume_24h ?? 0),
+    ch: Number(market.change_24h ?? 0),
+    conf: Math.round(Number(market.confidence ?? market.conf ?? 0) * (Number(market.confidence ?? market.conf ?? 0) <= 1 ? 100 : 1)),
+    dist: market.dist || "generated",
+  };
+}
+
+function normalizeDashboardPosition(position) {
+  const side = String(position.side || "yes").toUpperCase();
+  const quantity = Number(position.quantity || 0);
+  const average = Number(position.average_price ?? position.entry_price ?? 0);
+  const mark = Number(position.mark_price ?? position.exit_price ?? average);
+  const pnlValue = Number(position.realized_pnl ?? position.unrealized_pnl ?? 0);
+  const pct = average > 0 && quantity > 0 ? pnlValue / (average * quantity / 100) : 0;
+  return [
+    position.title || position.ticker,
+    side,
+    quantity,
+    cents(average.toFixed(0)),
+    cents(mark.toFixed(0)),
+    usd(pnlValue),
+    formatPercent(pct, 1, true),
+    pnlValue >= 0,
+  ];
+}
+
+function cityFromTicker(ticker = "") {
+  const upper = ticker.toUpperCase();
+  return Object.keys(cityColors).find((city) => upper.includes(city)) || "MKT";
+}
+
+function formatVolume(value) {
+  const number = Number(value || 0);
+  if (number >= 1000) return `${Math.round(number / 1000)}K`;
+  return number ? String(number) : "N/A";
+}
+
+function applyAccount(account = {}) {
+  const values = document.querySelectorAll(".account-strip strong");
+  if (values[0] && Number.isFinite(account.bankroll)) values[0].textContent = usd(account.bankroll);
+  if (values[1] && Number.isFinite(account.mtd_pnl)) {
+    values[1].textContent = `${account.mtd_pnl >= 0 ? "+" : ""}${usd(account.mtd_pnl)}`;
+    values[1].className = account.mtd_pnl >= 0 ? "positive" : "negative";
+  }
+  if (values[2] && Number.isFinite(account.available_cash)) values[2].textContent = usd(account.available_cash);
+}
+
+function applyDashboardPayload(payload) {
+  if (Array.isArray(payload.markets) && payload.markets.length) {
+    markets = payload.markets.map(normalizeDashboardMarket).map((market) => ({
+      ...market,
+      edge: market.model - market.last,
+    }));
+    state.selectedId = markets[0].id;
+    state.limit = markets[0].ask;
+  }
+
+  const generatedPositions = [];
+  if (Array.isArray(payload.positions)) generatedPositions.push(...payload.positions);
+  if (payload.paper && Array.isArray(payload.paper.open_positions)) {
+    generatedPositions.push(...payload.paper.open_positions);
+  }
+  if (generatedPositions.length) {
+    positions = generatedPositions.map(normalizeDashboardPosition);
+  }
+
+  if (payload.account) applyAccount(payload.account);
+  if (payload.backtest) renderBacktestSummary(payload.backtest);
+  render();
+}
+
 function bindControls() {
   $("buy-button").addEventListener("click", () => { state.side = "BUY"; renderTicket(); });
   $("sell-button").addEventListener("click", () => { state.side = "SELL"; renderTicket(); });
@@ -318,6 +406,16 @@ async function loadBacktestSummary() {
   }
 }
 
+async function loadDashboardPayload() {
+  try {
+    const response = await fetch("./data/dashboard.json", { cache: "no-store" });
+    if (!response.ok) return;
+    applyDashboardPayload(await response.json());
+  } catch {
+    // Keep the static sample dashboard when no generated payload exists.
+  }
+}
+
 function render() {
   renderMarkets();
   renderDetail();
@@ -330,5 +428,6 @@ function render() {
 bindControls();
 renderClock();
 render();
+loadDashboardPayload();
 loadBacktestSummary();
 window.setInterval(renderClock, 1000);

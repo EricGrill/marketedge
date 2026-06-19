@@ -10,6 +10,18 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List
 from uuid import uuid4
 
+COMPARISON_METRICS = (
+    "total_trades",
+    "win_rate",
+    "net_pnl",
+    "return_pct",
+    "max_drawdown",
+    "profit_factor",
+    "average_edge",
+    "average_confidence",
+    "sharpe_like",
+)
+
 
 class ExperimentRegistryError(ValueError):
     """Raised when an experiment record cannot be loaded or found."""
@@ -137,6 +149,33 @@ class ExperimentRegistry:
         self.append(updated)
         return updated
 
+    def compare(self, run_ids: Iterable[str]) -> Dict[str, Any]:
+        records = [self.get(run_id) for run_id in run_ids]
+        if len(records) < 2:
+            raise ExperimentRegistryError("compare requires at least two run IDs")
+
+        runs = [_comparison_run(record) for record in records]
+        baseline = runs[0]
+        metric_deltas = {}
+        for run in runs[1:]:
+            deltas = {}
+            for metric in COMPARISON_METRICS:
+                before = baseline["metrics"].get(metric)
+                after = run["metrics"].get(metric)
+                if isinstance(before, (int, float)) and isinstance(after, (int, float)):
+                    deltas[metric] = after - before
+            metric_deltas[run["run_id"]] = deltas
+
+        parameter_keys = sorted(
+            {key for record in records for key in record.parameters.keys()}
+        )
+        return {
+            "baseline_run_id": baseline["run_id"],
+            "runs": runs,
+            "metric_deltas": metric_deltas,
+            "parameter_keys": parameter_keys,
+        }
+
 
 def detect_git_commit(cwd: str | Path = ".") -> str:
     """Return the current git commit, or an empty string outside git."""
@@ -163,6 +202,52 @@ def parse_key_value_pairs(values: Iterable[str]) -> Dict[str, str]:
         key, item = value.split("=", 1)
         parsed[key] = item
     return parsed
+
+
+def _comparison_run(record: ExperimentRecord) -> Dict[str, Any]:
+    metrics, warnings = _load_artifact_metrics(record.artifact_paths)
+    return {
+        "run_id": record.run_id,
+        "strategy_name": record.strategy_name,
+        "parameters": record.parameters,
+        "data_references": record.data_references,
+        "artifact_paths": record.artifact_paths,
+        "artifact_count": len(record.artifact_paths),
+        "git_commit": record.git_commit,
+        "model_version": record.model_version,
+        "status": record.status,
+        "started_at": record.started_at.isoformat(),
+        "finished_at": record.finished_at.isoformat() if record.finished_at else None,
+        "notes": record.notes,
+        "metrics": metrics,
+        "warnings": warnings,
+    }
+
+
+def _load_artifact_metrics(paths: Iterable[str]) -> tuple[Dict[str, Any], List[str]]:
+    warnings: List[str] = []
+    for artifact in paths:
+        path = Path(artifact)
+        if not path.exists():
+            warnings.append(f"artifact not found: {artifact}")
+            continue
+        if path.suffix.lower() != ".json":
+            warnings.append(f"artifact is not JSON: {artifact}")
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            warnings.append(f"artifact is invalid JSON: {artifact}")
+            continue
+        metrics = {
+            metric: payload.get(metric)
+            for metric in COMPARISON_METRICS
+            if metric in payload
+        }
+        if metrics:
+            return metrics, warnings
+        warnings.append(f"artifact has no comparison metrics: {artifact}")
+    return {}, warnings
 
 
 def _default_run_id(strategy_name: str) -> str:

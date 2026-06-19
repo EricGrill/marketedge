@@ -123,3 +123,150 @@ def test_experiment_cli_creates_lists_and_shows_runs():
         "web/data/backtest-summary.json",
         "web/data/calibration-summary.json",
     ]
+
+
+def test_experiment_cli_compares_runs_with_artifacts():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        with open("a.json", "w", encoding="utf-8") as handle:
+            json.dump({"return_pct": 0.10, "net_pnl": 100, "sharpe_like": 1.2}, handle)
+        with open("b.json", "w", encoding="utf-8") as handle:
+            json.dump({"return_pct": 0.15, "net_pnl": 150, "sharpe_like": 1.5}, handle)
+
+        for run_id, artifact in [("run-a", "a.json"), ("run-b", "b.json")]:
+            result = runner.invoke(
+                cli,
+                [
+                    "experiments",
+                    "create",
+                    "--registry",
+                    "experiments.jsonl",
+                    "--strategy",
+                    "wx-meanrev",
+                    "--artifact",
+                    artifact,
+                    "--run-id",
+                    run_id,
+                ],
+            )
+            assert result.exit_code == 0
+
+        compare_result = runner.invoke(
+            cli,
+            [
+                "experiments",
+                "compare",
+                "run-a",
+                "run-b",
+                "--registry",
+                "experiments.jsonl",
+                "--json-out",
+                "compare.json",
+            ],
+        )
+        with open("compare.json", encoding="utf-8") as handle:
+            payload = json.load(handle)
+
+    assert compare_result.exit_code == 0
+    assert "Experiment Compare" in compare_result.output
+    assert round(payload["metric_deltas"]["run-b"]["return_pct"], 6) == 0.05
+
+
+def test_doctor_cli_strict_fails_on_warnings():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        result = runner.invoke(
+            cli,
+            [
+                "doctor",
+                "--env-file",
+                ".env",
+                "--db-path",
+                "state.db",
+                "--dashboard-path",
+                "missing.json",
+                "--strict",
+            ],
+        )
+
+    assert result.exit_code == 1
+    assert "Market Edge Doctor" in result.output
+    assert "WARN" in result.output
+
+
+def test_opportunities_cli_writes_rankings_json():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        with open("candidates.csv", "w", encoding="utf-8") as handle:
+            handle.write(
+                "\n".join(
+                    [
+                        "ticker,model_probability,yes_bid,yes_ask,confidence,volume",
+                        "HIGHNY-TEST-B88.5,0.85,39,40,0.9,100000",
+                    ]
+                )
+            )
+        result = runner.invoke(
+            cli,
+            ["opportunities", "candidates.csv", "--json-out", "rankings.json"],
+        )
+        with open("rankings.json", encoding="utf-8") as handle:
+            payload = json.load(handle)
+
+    assert result.exit_code == 0
+    assert "Opportunities" in result.output
+    assert payload[0]["action"] == "BUY_YES"
+
+
+def test_paper_cli_records_and_lists_positions():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        order_result = runner.invoke(
+            cli,
+            [
+                "paper",
+                "order",
+                "--ledger",
+                "paper.jsonl",
+                "--ticker",
+                "RAIN-NYC-TEST",
+                "--side",
+                "yes",
+                "--action",
+                "buy",
+                "--quantity",
+                "10",
+                "--price",
+                "40",
+            ],
+        )
+        positions_result = runner.invoke(
+            cli,
+            ["paper", "positions", "--ledger", "paper.jsonl"],
+        )
+
+    assert order_result.exit_code == 0
+    assert "Recorded paper order" in order_result.output
+    assert positions_result.exit_code == 0
+    assert "RAIN-NYC-TEST" in positions_result.output
+
+
+def test_dashboard_data_cli_writes_payload():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        result = runner.invoke(
+            cli,
+            [
+                "dashboard-data",
+                "--db-path",
+                "marketedge.db",
+                "--out",
+                "web/data/dashboard.json",
+            ],
+        )
+        with open("web/data/dashboard.json", encoding="utf-8") as handle:
+            payload = json.load(handle)
+
+    assert result.exit_code == 0
+    assert "Wrote dashboard data" in result.output
+    assert payload["account"]["bankroll"] == 10_000

@@ -1,7 +1,8 @@
-# kalshi_weather_quant/src/state.py
+# marketedge/src/state.py
 """Stateful server with SQLite backend for positions, trades, and model outputs."""
 
 import asyncio
+import os
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from enum import Enum
@@ -157,9 +158,14 @@ class PortfolioState(Base):
 class StateManager:
     """Thread-safe state manager with async SQLite backend."""
 
-    def __init__(self, db_path: str = "data/kalshi_quant.db"):
-        self.db_path = db_path
-        self.engine = create_engine(f"sqlite:///{db_path}")
+    def __init__(self, db_path: str | None = None):
+        self.db_path = db_path or os.getenv(
+            "MARKETEDGE_DB_PATH", "data/kalshi_quant.db"
+        )
+        db_parent = os.path.dirname(self.db_path)
+        if db_parent:
+            os.makedirs(db_parent, exist_ok=True)
+        self.engine = create_engine(f"sqlite:///{self.db_path}")
         self.Session = sessionmaker(bind=self.engine)
         self._lock = asyncio.Lock()
         self._init_db()
@@ -235,6 +241,25 @@ class StateManager:
                 snap = MarketSnapshot(**snapshot)
                 session.add(snap)
                 session.commit()
+
+    async def get_latest_market_snapshots(
+        self, limit: int = 100
+    ) -> List[MarketSnapshot]:
+        async with self._lock:
+            with self.Session() as session:
+                snapshots = (
+                    session.query(MarketSnapshot)
+                    .order_by(MarketSnapshot.timestamp.desc())
+                    .limit(limit * 3)
+                    .all()
+                )
+                latest_by_ticker: Dict[str, MarketSnapshot] = {}
+                for snapshot in snapshots:
+                    if snapshot.ticker not in latest_by_ticker:
+                        latest_by_ticker[snapshot.ticker] = snapshot
+                    if len(latest_by_ticker) >= limit:
+                        break
+                return list(latest_by_ticker.values())
 
     async def get_portfolio_state(self) -> PortfolioState:
         async with self._lock:

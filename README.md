@@ -1,101 +1,132 @@
 # Market Edge
 
-Market Edge is a prediction-market quant research and execution workbench.
-It is designed to help identify mispricings, arbitrage-like opportunities,
-hedging opportunities, and risk-aware strategies across event markets.
+Market Edge is a private prediction-market quant research and dry-run execution
+workbench. It helps evaluate model-vs-market mispricings, ranked opportunities,
+paper trades, backtests, calibration quality, and local operator readiness.
 
-The current implementation starts with Kalshi weather markets. The project is
-intended to expand beyond weather into other event-market categories once the
-core adapter, risk, persistence, and operations layers are production-ready.
+The current implementation starts with Kalshi weather markets. The code is
+structured so the core math, state, backtesting, execution modeling, and
+research workflows can expand to other event-market categories later.
 
 ## Status
 
-Market Edge is currently **experimental and research-first**.
+Market Edge is **experimental and research-first**.
 
-Use dry-run and analysis workflows only. Live trading is not production-ready
-until the live-trading safety gates, kill switches, operator diagnostics, and
-audit trail work are complete.
+Use local, no-account, analysis, backtest, and dry-run workflows. Do not treat
+this repository as production live-trading software until live-trading safety
+gates, kill switches, audit logs, CI, migrations, and operator diagnostics are
+fully merged and verified.
 
-Known production-readiness gaps are tracked in Linear:
-
-- [CHA-1040](https://linear.app/chainbytes/issue/CHA-1040/prod-001-restore-ci-and-release-verification-for-marketedge): restore CI and release verification.
-- [CHA-1041](https://linear.app/chainbytes/issue/CHA-1041/prod-002-add-explicit-live-trading-safety-gates-and-kill-switches): add live-trading safety gates and kill switches.
-- [CHA-1042](https://linear.app/chainbytes/issue/CHA-1042/prod-003-split-market-adapters-data-providers-and-strategies-into): split market adapters, data providers, and strategies into stable interfaces.
-- [CHA-1043](https://linear.app/chainbytes/issue/CHA-1043/prod-004-harden-persistence-with-migrations-configurable-storage-and): harden persistence with migrations, configurable storage, and audit trails.
-- [CHA-1044](https://linear.app/chainbytes/issue/CHA-1044/prod-005-add-api-resilience-observability-and-operator-diagnostics): add API resilience, observability, and operator diagnostics.
-- [CHA-1045](https://linear.app/chainbytes/issue/CHA-1045/doc-001-create-a-production-grade-readme-for-market-edge): create a production-grade README.
-
-## Repository
+## Repository And Docs
 
 - GitHub: [EricGrill/marketedge](https://github.com/EricGrill/marketedge)
-- Local development path: `/Users/eric/code/marketedge`
+- Canonical local path: `/Users/eric/code/marketedge`
+- Legacy compatibility path: `/Users/eric/code/kalshi_weather_quant`
 - Primary branch: `main`
+- Agent handoff file: `CLAUDE.md`
+- Main user/operator documentation: `README.md`
 
-## What It Does Today
+`CLAUDE.md` contains short project guidance for Claude and other coding agents:
+the product safety posture, common commands, generated-file rules, and
+verification gate. Keep it aligned with this README when changing the app
+surface.
 
-Market Edge currently includes:
+## Application Surfaces
 
-- A Click-based CLI for dashboard, analysis, strategy, portfolio, weather, and formula commands.
-- A static web dashboard that can load generated backtest summaries without requiring market accounts.
-- A Textual TUI dashboard scaffold.
-- A Kalshi REST/WebSocket client and weather market scanner.
-- Weather data fetchers and model-blending support.
-- A quant formula engine for opportunity screening and sizing.
-- An offline backtesting engine for settled prediction-market trade ledgers.
-- Offline settlement outcome loading for CSV/JSONL market-result datasets.
-- Model calibration scoring with Brier score, log loss, and probability buckets.
-- Execution modeling for spread crossing, slippage, partial fills, and queue assumptions.
-- Local JSONL experiment registry for reproducible research runs and artifacts.
-- SQLite-backed state for positions, forecasts, market snapshots, and portfolio state.
-- Initial regression tests for formulas, state persistence, settlement loading, calibration, execution, experiments, backtesting, and CLI behavior.
+Market Edge has three primary user surfaces.
+
+### CLI
+
+The Click CLI is the main operator and research interface:
+
+```bash
+python -m src.cli --help
+```
+
+Current command groups and commands:
+
+- `doctor` - local setup and readiness checks.
+- `dashboard` - launch the Textual TUI.
+- `dashboard-data` - export dashboard-ready JSON from local state.
+- `analyze` - inspect one ticker/model probability opportunity.
+- `opportunities` - rank offline candidate markets by edge, liquidity, risk, and confidence.
+- `trade` - run the weather strategy loop in dry-run or live mode.
+- `positions` and `portfolio` - inspect local SQLite state.
+- `backtest` - replay a CSV trade ledger and optionally write dashboard JSON.
+- `experiments` - create, list, show, compare, and attach artifacts to experiment records.
+- `paper` - record local no-account paper orders, positions, and settlements.
+- `weather` - fetch and blend weather forecast inputs.
+- `formulas` - display implemented quant formula references.
+
+If the virtual environment is not activated, use `.venv/bin/python -m src.cli`
+instead of `python -m src.cli`.
+
+### Web Dashboard
+
+The web dashboard is a static, no-account UI under `web/`. It can run without
+Kalshi credentials or a backend service:
+
+```bash
+python -m http.server 4173 -d web
+```
+
+Then open `http://localhost:4173`.
+
+The dashboard always has built-in sample data. When generated payloads exist, it
+hydrates from local artifacts:
+
+- `web/data/backtest-summary.json` - generated by `backtest --json-out`.
+- `web/data/dashboard.json` - generated by `dashboard-data`.
+
+`web/data/dashboard.json` can include market snapshots, portfolio state, open
+positions, paper-trading state, and backtest metrics. It is a generated local
+artifact and is ignored by git.
+
+### TUI
+
+The Textual TUI launches from the CLI:
+
+```bash
+python -m src.cli dashboard
+```
+
+It shows local portfolio state, open positions, recent signals, scanner controls,
+risk metrics, and settings. The scanner/settings controls are still a scaffold;
+the durable research workflows currently live in the CLI and local data files.
 
 ## Current Architecture
 
 ```text
 marketedge/
+├── CLAUDE.md              # Agent/project handoff guidance
+├── README.md              # Operator and contributor documentation
+├── requirements.txt       # Python dependencies
+├── .env.example           # Local config template
 ├── src/
-│   ├── cli.py              # Click CLI entry point
-│   ├── backtesting.py      # Offline replay and backtest metrics
-│   ├── calibration.py      # Forecast calibration scoring
-│   ├── config.py           # Environment-driven configuration
-│   ├── execution.py        # Fill/slippage/queue execution modeling
-│   ├── experiments.py      # Local experiment registry
-│   ├── formulas.py         # Quant engine and screening math
-│   ├── settlements.py      # Offline settlement outcome resolver
-│   ├── state.py            # SQLite state manager and SQLAlchemy models
-│   ├── api/
-│   │   └── client.py       # Kalshi REST/WebSocket client and market scanner
-│   ├── strategies/
-│   │   └── weather.py      # Weather strategy pipeline
-│   ├── tui/
-│   │   └── app.py          # Textual dashboard
-│   └── weather/
-│       └── data.py         # Weather data fetchers and model blend inputs
-├── tests/
-│   ├── conftest.py
-│   ├── test_backtesting.py
-│   ├── test_calibration.py
-│   ├── test_cli.py
-│   ├── test_execution.py
-│   ├── test_experiments.py
-│   ├── test_formulas.py
-│   ├── test_settlements.py
-│   └── test_state.py
-├── web/
-│   ├── app.js              # Static dashboard interactions
-│   ├── data/
-│   │   └── backtest-summary.json
-│   ├── index.html
-│   └── styles.css
-├── .env.example
-├── .gitignore
-├── README.md
-└── requirements.txt
+│   ├── cli.py             # Click CLI entry point
+│   ├── dashboard.py       # Dashboard JSON payload builder
+│   ├── doctor.py          # Local readiness checks
+│   ├── opportunities.py   # Ranked opportunity scanner
+│   ├── paper.py           # Append-only paper trading ledger
+│   ├── backtesting.py     # Offline replay and backtest metrics
+│   ├── calibration.py     # Forecast calibration scoring
+│   ├── config.py          # Environment-driven configuration
+│   ├── execution.py       # Fill/slippage/queue execution modeling
+│   ├── experiments.py     # Local experiment registry and comparison
+│   ├── formulas.py        # Quant engine and screening math
+│   ├── settlements.py     # Offline settlement outcome resolver
+│   ├── state.py           # SQLite state manager and SQLAlchemy models
+│   ├── api/client.py      # Kalshi REST/WebSocket client and weather scanner
+│   ├── strategies/weather.py
+│   ├── tui/app.py         # Textual dashboard
+│   └── weather/data.py    # Weather data fetchers and model blend inputs
+├── tests/                 # Regression tests for CLI, state, math, ledgers, and artifacts
+└── web/
+    ├── index.html
+    ├── app.js
+    ├── styles.css
+    └── data/backtest-summary.json
 ```
-
-The next architectural step is to separate market adapters, data providers, and
-strategies behind stable interfaces so non-weather event markets can be added
-without rewriting core risk or execution logic.
 
 ## Quickstart
 
@@ -113,51 +144,69 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-pip install flake8
 ```
 
-Create local configuration:
+Create local configuration when using API-backed commands:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with Kalshi credentials before using API-backed commands.
-Keep `KALSHI_SANDBOX=true` unless you are intentionally working with a live
+Kalshi credentials are not required for local dashboard, backtest, experiment,
+opportunity ranking, paper ledger, or doctor workflows. Keep
+`KALSHI_SANDBOX=true` unless you are intentionally working against a live
 environment.
 
 ## Configuration
 
-`.env.example` documents the current variables:
+`.env.example` documents supported local variables:
 
 ```env
 KALSHI_API_KEY=your_api_key_here
 KALSHI_API_SECRET=your_api_secret_here
 KALSHI_SANDBOX=true
-```
 
-Optional URL overrides are also supported:
-
-```env
+# Optional URL overrides
 KALSHI_BASE_URL=https://api.elections.kalshi.com
 KALSHI_WS_URL=wss://api.elections.kalshi.com/ws/v2
+
+# Optional local SQLite path
+MARKETEDGE_DB_PATH=data/kalshi_quant.db
 ```
 
-Database state currently defaults to `data/kalshi_quant.db`. Configurable
-database paths and schema migrations are tracked in
-[CHA-1043](https://linear.app/chainbytes/issue/CHA-1043/prod-004-harden-persistence-with-migrations-configurable-storage-and).
+Local generated state is intentionally not committed:
 
-## Common Commands
+- `data/*.db`, `data/*.sqlite`, `data/*.sqlite3`
+- `data/*.jsonl`
+- `web/data/dashboard.json`
+- `.env`, `.env.local`, `*.env`
 
-Open the web dashboard:
+## Core Workflows
+
+### Check Local Readiness
 
 ```bash
-python -m http.server 4173 -d web
+python -m src.cli doctor
+python -m src.cli doctor --strict
 ```
 
-Then visit `http://localhost:4173`.
+`doctor` checks Python/runtime modules, `.env`, Kalshi credential presence
+without printing secrets, sandbox mode, local SQLite storage, and dashboard
+artifact presence. `--strict` treats warnings as failures.
 
-Analyze a specific market opportunity:
+### Generate Dashboard Data
+
+```bash
+python -m src.cli dashboard-data \
+  --out web/data/dashboard.json \
+  --paper-ledger data/paper-ledger.jsonl \
+  --backtest-summary web/data/backtest-summary.json
+```
+
+The web dashboard will use `web/data/dashboard.json` when present and fall back
+to built-in sample data when it is missing.
+
+### Analyze One Market
 
 ```bash
 python -m src.cli analyze \
@@ -166,70 +215,65 @@ python -m src.cli analyze \
   --side yes
 ```
 
-Run the strategy loop in dry-run mode:
+The current `analyze` command uses placeholder bid/ask values. Use
+`opportunities` for batch offline ranking from explicit candidate data.
+
+### Rank Opportunity Candidates
 
 ```bash
-python -m src.cli trade --dry --interval 300
+python -m src.cli opportunities path/to/candidates.csv \
+  --bankroll 10000 \
+  --json-out web/data/opportunities.json
 ```
 
-Run an offline backtest from a CSV trade ledger:
+Candidate CSV/JSON/JSONL rows require:
+
+- `ticker`
+- `model_probability`
+- `yes_bid`
+- `yes_ask`
+
+Optional fields include `title`, `no_bid`, `no_ask`, `confidence`, `volume`,
+`open_interest`, and `resolution_date`.
+
+Results include rank, YES/NO side, action, score, fee-adjusted edge, expected
+value, sizing hint, annualized yield, risk of ruin, confidence, and reason codes
+such as `EDGE_OK`, `SPREAD_TOO_WIDE`, and `LOW_CONFIDENCE`.
+
+### Run An Offline Backtest
 
 ```bash
 python -m src.cli backtest path/to/trades.csv --bankroll 10000
-```
 
-Generate the dashboard data file from the same ledger:
-
-```bash
 python -m src.cli backtest path/to/trades.csv \
   --bankroll 10000 \
   --json-out web/data/backtest-summary.json
 ```
 
-Required CSV columns: `timestamp`, `ticker`, `side`, `entry_price`, `exit_price`,
-`quantity`, and `model_probability`. Optional columns include `confidence`,
-`entry_fee`, and `exit_fee`. When `web/data/backtest-summary.json` exists, the
-web dashboard loads it into the backtest panel; otherwise the dashboard keeps
-its static no-account sample metrics.
+Required trade CSV columns:
 
-Load local settlement outcomes for resolved markets:
+- `timestamp`
+- `ticker`
+- `side`
+- `entry_price`
+- `exit_price`
+- `quantity`
+- `model_probability`
 
-```python
-from src.backtesting import BacktestEngine, load_trades_csv
-from src.settlements import SettlementResolver, load_settlements_csv
+Optional columns include `confidence`, `entry_fee`, and `exit_fee`.
 
-trades = load_trades_csv("path/to/trades.csv")
-outcomes = load_settlements_csv("path/to/settlements.csv")
-settled_trades = SettlementResolver(outcomes).settle_trades(trades)
-summary = BacktestEngine().run(settled_trades, initial_bankroll=10000)
-```
+### Load Settlements And Score Calibration
 
 Settlement CSV/JSONL rows require `ticker`, `settled_at`, and `winning_side`.
 `yes_settlement_price`, `settlement_value`, or `settlement_price` may be
 provided explicitly; otherwise the resolver derives `100` for YES winners and
-`0` for NO winners. Duplicate, missing, and internally inconsistent settlement
-rows raise `SettlementValidationError`.
-
-Score probability calibration against local outcomes:
-
-```python
-from src.calibration import CalibrationScorer, load_forecasts_csv
-from src.settlements import SettlementResolver, load_settlements_csv
-
-forecasts = load_forecasts_csv("path/to/forecasts.csv")
-outcomes = load_settlements_csv("path/to/settlements.csv")
-summary = CalibrationScorer(bucket_size=0.1).score(
-    forecasts,
-    SettlementResolver(outcomes),
-)
-dashboard_payload = summary.to_dict()
-```
+`0` for NO winners.
 
 Forecast CSV/JSONL rows require `timestamp`, `ticker`, and `model_probability`.
-Optional `strategy`, `market_category`, and `event_type` columns are used to
-produce grouped calibration summaries.
+Optional `strategy`, `market_category`, and `event_type` fields produce grouped
+calibration summaries.
 
-Apply simple execution realism before replay:
+### Apply Execution Realism
 
 ```python
 from src.execution import ExecutionModel, ExecutionOrder, OrderBookLevel, OrderBookSnapshot
@@ -248,7 +292,7 @@ Execution metadata is carried into backtest trade results so summaries can show
 requested quantity, filled quantity, unfilled quantity, and effective average
 entry price.
 
-Record reproducible experiment runs:
+### Track And Compare Experiments
 
 ```bash
 python -m src.cli experiments create \
@@ -260,31 +304,32 @@ python -m src.cli experiments create \
 
 python -m src.cli experiments list
 python -m src.cli experiments show <run-id>
+python -m src.cli experiments compare <run-id-a> <run-id-b>
+python -m src.cli experiments add-artifact <run-id> path/to/artifact.json
 ```
 
-Experiment records are stored as append-only JSONL in `data/experiments.jsonl`
-by default. Records include strategy name, parameters, data references,
-artifacts, model version, git commit, and timestamps.
+Experiment records are append-only JSONL in `data/experiments.jsonl` by default.
+Comparison loads referenced JSON artifacts when present and reports metric
+deltas such as return, net P&L, Sharpe-like score, drawdown, and average edge.
 
-Launch the TUI dashboard:
+### Record Paper Trades
 
 ```bash
-python -m src.cli dashboard
+python -m src.cli paper order \
+  --ticker HIGHNY-26JUN18-B88.5 \
+  --side yes \
+  --action buy \
+  --quantity 10 \
+  --price 40
+
+python -m src.cli paper positions
+python -m src.cli paper settle --ticker HIGHNY-26JUN18-B88.5 --winning-side yes
 ```
 
-View portfolio state:
+Paper ledger events are append-only JSONL in `data/paper-ledger.jsonl` by
+default. They are local dry-run records and do not call the Kalshi API.
 
-```bash
-python -m src.cli portfolio
-```
-
-View open positions:
-
-```bash
-python -m src.cli positions
-```
-
-Fetch weather data:
+### Fetch Weather Data
 
 ```bash
 python -m src.cli weather \
@@ -294,33 +339,10 @@ python -m src.cli weather \
   --threshold 1.0
 ```
 
-Display implemented formulas:
+The weather implementation currently blends NWS-style, Open-Meteo-style,
+analog, microclimate, and NWS delta inputs.
 
-```bash
-python -m src.cli formulas
-```
-
-## Verification
-
-Run the local verification gate:
-
-```bash
-black --check src tests
-flake8 src/ tests/ --max-line-length=120 --ignore=E501,W503
-pytest tests/ -q
-```
-
-Current local proof:
-
-- Black passes for `src` and `tests`.
-- flake8 passes for `src` and `tests`.
-- pytest passes with formula, settlement, calibration, execution, experiment, backtesting, CLI, and SQLite state coverage.
-
-Remote CI is not yet restored. GitHub rejected the initial workflow push because
-the current token lacked `workflow` scope. CI restoration is tracked in
-[CHA-1040](https://linear.app/chainbytes/issue/CHA-1040/prod-001-restore-ci-and-release-verification-for-marketedge).
-
-## Quant Engine
+## Quant And Risk Features
 
 `src/formulas.py` currently implements:
 
@@ -334,48 +356,52 @@ the current token lacked `workflow` scope. CI restoration is tracked in
 - Correlation exposure estimation.
 - Full opportunity screening.
 
-These formulas are intended to remain market-agnostic as the project expands
-beyond weather.
+The codebase also includes max position percentage, max correlated exposure,
+spread-based size reduction, and auto-close concepts. These are research/risk
+primitives, not sufficient production live-trading controls by themselves.
 
-## Data Sources
+## Safety And Production Readiness
 
-The weather implementation is built around:
+Before live use, Market Edge still needs durable production controls:
 
-- Kalshi market data and orderbook access.
-- NWS-style weather forecast inputs.
-- Open-Meteo-style ensemble forecast inputs.
-- Analog and microclimate adjustments.
-
-Provider failure handling, retries, and operator diagnostics are not yet
-production-grade. That work is tracked in
-[CHA-1044](https://linear.app/chainbytes/issue/CHA-1044/prod-005-add-api-resilience-observability-and-operator-diagnostics).
-
-## Safety And Risk Controls
-
-The codebase includes risk concepts such as:
-
-- Max position percentage.
-- Max correlated exposure.
-- Fractional Kelly sizing.
-- Spread-based size reduction.
-- Risk-of-ruin thresholding.
-- Auto-close logic near expiration.
-
-These are not enough for production live trading. Before live use, Market Edge
-needs:
-
+- Remote CI and release verification.
 - Explicit live-trading enablement.
-- A global kill switch.
+- Global kill switch.
 - Pre-order risk limit enforcement.
 - Daily loss and notional exposure limits.
 - Structured audit logs for every signal, refusal, intent, and result.
+- Schema migrations and operational diagnostics.
 
-That work is tracked in
-[CHA-1041](https://linear.app/chainbytes/issue/CHA-1041/prod-002-add-explicit-live-trading-safety-gates-and-kill-switches).
+Relevant Linear tracking includes `CHA-1040` through `CHA-1044` for production
+readiness and later enhancement issues for dashboard data, opportunity ranking,
+paper ledger, doctor checks, and experiment comparison.
+
+## Verification
+
+Run the local verification gate before claiming completion:
+
+```bash
+.venv/bin/black --check src tests
+.venv/bin/flake8 src/ tests/ --max-line-length=120 --ignore=E501,W503
+.venv/bin/pytest tests/ -q
+node --check web/app.js
+```
+
+Current local proof on this branch:
+
+- Black passes for `src` and `tests`.
+- flake8 passes for `src` and `tests`.
+- pytest passes with CLI, dashboard, doctor, opportunities, paper ledger,
+  formula, settlement, calibration, execution, experiment, backtesting, and
+  SQLite state coverage.
+- `node --check web/app.js` passes.
+
+Known warning noise currently comes from existing `datetime.utcnow()` usage and
+SQLAlchemy legacy APIs. Warnings are not currently fatal.
 
 ## Development Workflow
 
-Use a branch per Linear issue:
+Use a branch per Linear issue or a clearly named batch branch:
 
 ```bash
 git checkout main
@@ -383,50 +409,29 @@ git pull
 git checkout -b codex/cha-1045-production-readme
 ```
 
-Before opening a PR:
+Before opening a PR, run the verification gate and include:
 
-```bash
-black --check src tests
-flake8 src/ tests/ --max-line-length=120 --ignore=E501,W503
-pytest tests/ -q
-```
-
-Expected PRs should include:
-
-- The Linear issue identifier.
+- The Linear issue identifier(s).
 - A concise explanation of the change.
 - Verification commands and results.
-- Any known gaps or follow-up issues.
+- Known gaps or follow-up issues.
 
-## Open-Source Readiness
+Commits should follow the repository's lore commit protocol when creating new
+commits.
+
+## Security And Open-Source Readiness
+
+Do not commit real API keys or trading credentials. Use `.env` for local
+secrets.
 
 This repository is currently private. Before making it public:
 
 - Select and add a license.
-- Add a security policy.
+- Add a security policy and vulnerability disclosure path.
 - Confirm no secrets or private operational details are committed.
 - Restore CI.
-- Make the README clear that live trading is not production-ready.
-- Decide whether Linear links should remain in public documentation or move to a public roadmap.
+- Decide whether Linear links should remain in public documentation or move to a
+  public roadmap.
 
 No license has been selected yet. Do not assume open-source rights until a
 license file is added.
-
-## Security
-
-Do not commit real API keys or trading credentials. Use `.env` for local secrets.
-
-There is not yet a formal vulnerability disclosure policy. Add one before any
-public release.
-
-## Production Readiness
-
-Market Edge should not be represented as production-ready until these are done:
-
-1. [CHA-1040](https://linear.app/chainbytes/issue/CHA-1040/prod-001-restore-ci-and-release-verification-for-marketedge): CI and release verification.
-2. [CHA-1041](https://linear.app/chainbytes/issue/CHA-1041/prod-002-add-explicit-live-trading-safety-gates-and-kill-switches): live-trading safety gates.
-3. [CHA-1042](https://linear.app/chainbytes/issue/CHA-1042/prod-003-split-market-adapters-data-providers-and-strategies-into): extensible interfaces.
-4. [CHA-1043](https://linear.app/chainbytes/issue/CHA-1043/prod-004-harden-persistence-with-migrations-configurable-storage-and): migrations and audit trails.
-5. [CHA-1044](https://linear.app/chainbytes/issue/CHA-1044/prod-005-add-api-resilience-observability-and-operator-diagnostics): resilience and diagnostics.
-
-Until then, treat the project as a local research and dry-run system.

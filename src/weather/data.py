@@ -1,4 +1,4 @@
-# kalshi_weather_quant/src/weather/data.py
+# marketedge/src/weather/data.py
 """Weather data fetching and model probability estimation."""
 
 from datetime import datetime

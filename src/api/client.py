@@ -1,4 +1,4 @@
-# kalshi_weather_quant/src/api/client.py
+# marketedge/src/api/client.py
 """Kalshi API client with REST and WebSocket support."""
 
 import json

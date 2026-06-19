@@ -1,5 +1,5 @@
-# kalshi_weather_quant/src/tui/app.py
-"""Textual TUI for Kalshi Weather Quant Trading."""
+# marketedge/src/tui/app.py
+"""Textual TUI for Market Edge."""
 
 import asyncio
 from datetime import datetime

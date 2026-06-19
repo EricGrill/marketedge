@@ -1,4 +1,4 @@
-# kalshi_weather_quant/src/config.py
+# marketedge/src/config.py
 """Configuration management with environment variables."""
 
 import os

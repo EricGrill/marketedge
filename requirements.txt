@@ -1,4 +1,4 @@
-# Kalshi Weather Quant Trading CLI
+# Market Edge prediction-market quant workbench
 # Install: pip install -r requirements.txt
 
 # Core

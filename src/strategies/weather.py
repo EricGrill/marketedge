@@ -1,4 +1,4 @@
-# kalshi_weather_quant/src/strategies/weather.py
+# marketedge/src/strategies/weather.py
 """Weather trading strategy for Kalshi prediction markets."""
 
 import asyncio

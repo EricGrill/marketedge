@@ -1,5 +1,5 @@
-# kalshi_weather_quant/src/cli.py
-"""CLI entry point for Kalshi Weather Quant Trading."""
+# marketedge/src/cli.py
+"""CLI entry point for Market Edge."""
 
 import asyncio
 import json
@@ -18,6 +18,10 @@ from src.state import StateManager
 from src.formulas import QuantEngine
 from src.backtesting import BacktestEngine, load_trades_csv
 from src.experiments import ExperimentRegistry, parse_key_value_pairs
+from src.doctor import has_failures, has_warnings, run_health_checks
+from src.dashboard import build_dashboard_payload, write_dashboard_payload
+from src.opportunities import OpportunityScanner, load_candidates
+from src.paper import PaperLedgerError, PaperTradingLedger
 from src.api.client import KalshiRestClient
 from src.strategies.weather import WeatherTradingStrategy
 from src.tui.app import KalshiQuantApp
@@ -29,7 +33,7 @@ console = Console()
 @click.option("--env", default=".env", help="Path to .env file")
 @click.pass_context
 def cli(ctx, env):
-    """Kalshi Weather Quant Trading CLI"""
+    """Market Edge research and dry-run trading CLI."""
     if os.path.exists(env):
         from dotenv import load_dotenv
 
@@ -148,6 +152,115 @@ def trade(ctx, live, interval):
     except KeyboardInterrupt:
         console.print("[yellow]Shutting down...[/yellow]")
         asyncio.run(strategy.stop())
+
+
+@cli.command()
+@click.option("--env-file", default=".env", show_default=True)
+@click.option("--db-path", default=None, help="SQLite database path to validate.")
+@click.option(
+    "--dashboard-path",
+    default="web/data/backtest-summary.json",
+    show_default=True,
+    help="Dashboard backtest artifact to validate.",
+)
+@click.option("--strict", is_flag=True, help="Treat warnings as failures.")
+def doctor(env_file, db_path, dashboard_path, strict):
+    """Validate local setup and operator readiness."""
+    checks = run_health_checks(env_file, db_path, dashboard_path)
+    table = Table(title="Market Edge Doctor")
+    table.add_column("Check", style="cyan")
+    table.add_column("Status")
+    table.add_column("Message")
+    table.add_column("Remediation", style="yellow")
+
+    status_style = {"ok": "green", "warn": "yellow", "fail": "red"}
+    for check in checks:
+        table.add_row(
+            check.name,
+            f"[{status_style[check.status]}]{check.status.upper()}[/{status_style[check.status]}]",
+            check.message,
+            check.remediation,
+        )
+    console.print(table)
+
+    if has_failures(checks) or (strict and has_warnings(checks)):
+        sys.exit(1)
+
+
+@cli.command("dashboard-data")
+@click.option("--out", default="web/data/dashboard.json", show_default=True)
+@click.option("--db-path", default=None, help="SQLite database path to export.")
+@click.option(
+    "--paper-ledger",
+    default="data/paper-ledger.jsonl",
+    show_default=True,
+    help="Optional paper trading ledger to include.",
+)
+@click.option(
+    "--backtest-summary",
+    default="web/data/backtest-summary.json",
+    show_default=True,
+    help="Optional generated backtest summary to include.",
+)
+def dashboard_data(out, db_path, paper_ledger, backtest_summary):
+    """Write dashboard-ready JSON from local state."""
+    state = StateManager(db_path)
+    payload = asyncio.run(
+        build_dashboard_payload(
+            state,
+            paper_ledger_path=paper_ledger,
+            backtest_summary_path=backtest_summary,
+        )
+    )
+    output_path = write_dashboard_payload(payload, out)
+    console.print(f"[green]Wrote dashboard data to {output_path}[/green]")
+
+
+@cli.command()
+@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--bankroll",
+    type=float,
+    default=trading_config.initial_bankroll,
+    show_default=True,
+)
+@click.option("--json-out", type=click.Path(dir_okay=False, writable=True))
+@click.option("--limit", type=int, default=20, show_default=True)
+def opportunities(path, bankroll, json_out, limit):
+    """Rank offline opportunity candidates by edge, risk, and liquidity."""
+    results = OpportunityScanner().rank(load_candidates(path), bankroll=bankroll)
+    table = Table(title=f"Opportunities: {path}")
+    table.add_column("Rank", style="dim")
+    table.add_column("Ticker", style="cyan")
+    table.add_column("Side")
+    table.add_column("Action")
+    table.add_column("Score")
+    table.add_column("Edge")
+    table.add_column("EV")
+    table.add_column("Size")
+    table.add_column("Reasons")
+
+    for index, result in enumerate(results[:limit], start=1):
+        table.add_row(
+            str(index),
+            result.ticker,
+            result.side.upper(),
+            result.action,
+            f"{result.score:.2f}",
+            f"{result.fee_adjusted_edge:.2%}",
+            f"{result.expected_value:.3f}",
+            f"${result.recommended_bet_dollars:,.2f}",
+            ", ".join(result.reason_codes),
+        )
+    console.print(table)
+
+    if json_out:
+        output_path = Path(json_out)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8") as handle:
+            json.dump([result.to_dict() for result in results], handle, indent=2)
+            handle.write("\n")
+        console.print(f"[green]Wrote opportunity rankings to {output_path}[/green]")
 
 
 @cli.command()
@@ -335,6 +448,47 @@ def experiment_show(run_id, registry):
     console.print_json(data=record.to_dict())
 
 
+@experiments.command("compare")
+@click.argument("run_ids", nargs=-1)
+@click.option("--registry", default="data/experiments.jsonl", show_default=True)
+@click.option("--json-out", type=click.Path(dir_okay=False, writable=True))
+def experiment_compare(run_ids, registry, json_out):
+    """Compare two or more experiment records."""
+    if len(run_ids) < 2:
+        raise click.ClickException("compare requires at least two run IDs")
+
+    comparison = ExperimentRegistry(registry).compare(run_ids)
+    table = Table(title=f"Experiment Compare: {comparison['baseline_run_id']} baseline")
+    table.add_column("Run ID", style="cyan")
+    table.add_column("Strategy")
+    table.add_column("Model")
+    table.add_column("Return")
+    table.add_column("Net P&L")
+    table.add_column("Sharpe")
+    table.add_column("Warnings", style="yellow")
+
+    for run in comparison["runs"]:
+        metrics = run["metrics"]
+        table.add_row(
+            run["run_id"],
+            run["strategy_name"],
+            run["model_version"],
+            _format_optional_percent(metrics.get("return_pct")),
+            _format_optional_dollars(metrics.get("net_pnl")),
+            _format_optional_ratio(metrics.get("sharpe_like")),
+            "; ".join(run["warnings"]),
+        )
+    console.print(table)
+
+    if json_out:
+        output_path = Path(json_out)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8") as handle:
+            json.dump(comparison, handle, indent=2, allow_nan=False)
+            handle.write("\n")
+        console.print(f"[green]Wrote experiment comparison to {output_path}[/green]")
+
+
 @experiments.command("add-artifact")
 @click.argument("run_id")
 @click.argument("artifact_path")
@@ -343,6 +497,80 @@ def experiment_add_artifact(run_id, artifact_path, registry):
     """Append an artifact link to an experiment record."""
     record = ExperimentRegistry(registry).add_artifact(run_id, artifact_path)
     console.print(f"[green]Linked artifact to {record.run_id}[/green]")
+
+
+@cli.group()
+def paper():
+    """Manage no-account paper trading ledger events."""
+
+
+@paper.command("order")
+@click.option("--ledger", default="data/paper-ledger.jsonl", show_default=True)
+@click.option("--ticker", required=True)
+@click.option("--side", type=click.Choice(["yes", "no"]), required=True)
+@click.option("--action", type=click.Choice(["buy", "sell"]), required=True)
+@click.option("--quantity", type=int, required=True)
+@click.option("--price", type=float, required=True, help="Limit/fill price in cents.")
+@click.option("--fee", type=float, default=0.0, show_default=True)
+@click.option("--note", default="")
+def paper_order(ledger, ticker, side, action, quantity, price, fee, note):
+    """Record a dry-run paper order as an immediate fill."""
+    try:
+        event = PaperTradingLedger(ledger).record_order(
+            ticker=ticker,
+            side=side,
+            action=action,
+            quantity=quantity,
+            price=price,
+            fee=fee,
+            note=note,
+        )
+    except PaperLedgerError as exc:
+        raise click.ClickException(str(exc)) from exc
+    console.print(f"[green]Recorded paper order {event.event_id}[/green]")
+
+
+@paper.command("settle")
+@click.option("--ledger", default="data/paper-ledger.jsonl", show_default=True)
+@click.option("--ticker", required=True)
+@click.option("--winning-side", type=click.Choice(["yes", "no"]), required=True)
+@click.option("--note", default="")
+def paper_settle(ledger, ticker, winning_side, note):
+    """Settle all open paper positions for one ticker."""
+    event = PaperTradingLedger(ledger).settle(
+        ticker=ticker,
+        winning_side=winning_side,
+        note=note,
+    )
+    console.print(f"[green]Recorded paper settlement {event.event_id}[/green]")
+
+
+@paper.command("positions")
+@click.option("--ledger", default="data/paper-ledger.jsonl", show_default=True)
+def paper_positions(ledger):
+    """Show open paper positions and realized P&L."""
+    summary = PaperTradingLedger(ledger).summary()
+    table = Table(title=f"Paper Positions: {ledger}")
+    table.add_column("Ticker", style="cyan")
+    table.add_column("Side")
+    table.add_column("Qty")
+    table.add_column("Avg")
+    table.add_column("Cost")
+    table.add_column("Realized")
+
+    for position in summary["open_positions"]:
+        table.add_row(
+            position["ticker"],
+            position["side"].upper(),
+            str(position["quantity"]),
+            f"{position['average_price']:.2f}¢",
+            f"${position['cost_basis']:,.2f}",
+            f"${position['realized_pnl']:,.2f}",
+        )
+    console.print(table)
+    console.print(
+        f"[dim]Events: {summary['event_count']} | Realized P&L: ${summary['realized_pnl']:,.2f} | Fees: ${summary['fees']:,.2f}[/dim]"
+    )
 
 
 @cli.command()
@@ -424,7 +652,7 @@ def weather(lat, lon, event_type, threshold):
 def formulas():
     """Display all quant formulas used."""
     text = Text()
-    text.append("KALSHI WEATHER QUANT FORMULAS\n\n", style="bold underline")
+    text.append("MARKET EDGE FORMULAS\n\n", style="bold underline")
 
     formulas_list = [
         (
@@ -447,6 +675,24 @@ def formulas():
         text.append(f"{formula}\n", style="dim")
 
     console.print(Panel(text, title="Quant Formula Reference"))
+
+
+def _format_optional_percent(value):
+    if isinstance(value, (int, float)):
+        return f"{value:.2%}"
+    return "N/A"
+
+
+def _format_optional_dollars(value):
+    if isinstance(value, (int, float)):
+        return f"${value:,.2f}"
+    return "N/A"
+
+
+def _format_optional_ratio(value):
+    if isinstance(value, (int, float)):
+        return f"{value:.2f}"
+    return "N/A"
 
 
 if __name__ == "__main__":
