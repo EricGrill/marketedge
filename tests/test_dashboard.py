@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 import pytest
 
@@ -38,6 +39,10 @@ async def test_dashboard_payload_exports_state_and_paper_summary(tmp_path):
             "iy_annualized": 1.1,
             "las_at_entry": 0.05,
             "kelly_fraction": 0.1,
+            "weather_event_type": "temperature",
+            "location": "NYC",
+            "resolution_date": datetime(2026, 6, 30),
+            "correlated_group": "nyc-high-temp",
             "position_pct_of_bankroll": 0.04,
         }
     )
@@ -53,5 +58,7 @@ async def test_dashboard_payload_exports_state_and_paper_summary(tmp_path):
 
     assert saved["markets"][0]["ticker"] == "HIGHNY-TEST-B88.5"
     assert saved["positions"][0]["ticker"] == "HIGHNY-TEST-B88.5"
+    assert saved["risk"]["total_exposure"] == 4.0
+    assert saved["risk"]["groups"]["city"][0]["key"] == "nyc"
     assert saved["paper"]["event_count"] == 1
     assert saved["account"]["bankroll"] == 10_000

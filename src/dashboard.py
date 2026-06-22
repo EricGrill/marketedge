@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
+from src.formulas import QuantEngine, REGION_BY_CITY
 from src.paper import PaperTradingLedger
 from src.state import StateManager
 
@@ -19,13 +20,18 @@ async def build_dashboard_payload(
     """Build one JSON payload consumed by the static dashboard."""
     portfolio = await state.get_portfolio_state()
     positions = await state.get_open_positions()
+    position_payloads = [_position_payload(position) for position in positions]
     snapshots = await state.get_latest_market_snapshots()
 
     payload: Dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "account": _portfolio_payload(portfolio),
         "markets": [_market_payload(snapshot) for snapshot in snapshots],
-        "positions": [_position_payload(position) for position in positions],
+        "positions": position_payloads,
+        "risk": QuantEngine().summarize_correlated_risk(
+            position_payloads,
+            bankroll=portfolio.bankroll if portfolio else 0,
+        ),
     }
 
     if paper_ledger_path:
@@ -99,6 +105,17 @@ def _position_payload(position) -> Dict[str, Any]:
         "edge_at_entry": position.edge_at_entry,
         "iy_annualized": position.iy_annualized,
         "location": position.location,
+        "city": position.location,
+        "region": _region_from_location(position.location),
+        "weather_event_type": position.weather_event_type,
+        "event_type": position.weather_event_type,
+        "resolution_date": (
+            position.resolution_date.isoformat() if position.resolution_date else None
+        ),
+        "correlated_group": position.correlated_group,
+        "correlation_group": position.correlated_group,
+        "model_probability": position.model_probability,
+        "market_probability": position.market_probability,
         "created_at": position.created_at.isoformat() if position.created_at else None,
         "realized_pnl": position.realized_pnl,
     }
@@ -111,3 +128,8 @@ def _city_from_ticker(ticker: str) -> str:
         if city in upper:
             return city
     return "MKT"
+
+
+def _region_from_location(location: str | None) -> str:
+    city = (location or "").upper()
+    return REGION_BY_CITY.get(city, "unknown")

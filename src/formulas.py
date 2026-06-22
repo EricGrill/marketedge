@@ -68,6 +68,23 @@ class RiskMetrics:
     correlation_exposure: float
 
 
+REGION_BY_CITY = {
+    "NYC": "northeast",
+    "BOS": "northeast",
+    "PHL": "northeast",
+    "CHI": "midwest",
+    "DEN": "mountain",
+    "SEA": "west",
+    "LAX": "west",
+    "SFO": "west",
+    "MIA": "southeast",
+    "ATL": "southeast",
+    "AUS": "south",
+    "HOU": "south",
+    "PHX": "southwest",
+}
+
+
 class QuantEngine:
     """Core quant calculations for Kalshi weather trading."""
 
@@ -378,6 +395,83 @@ class QuantEngine:
 
         return (total_correlated + new_exposure) / total_exposure
 
+    def summarize_correlated_risk(self, positions: List[dict], bankroll: float) -> dict:
+        """Return dashboard-ready correlated exposure and scenario risk."""
+        normalized = [_normalize_risk_position(pos) for pos in positions]
+        normalized = [pos for pos in normalized if pos["exposure"] > 0]
+        total_exposure = sum(pos["exposure"] for pos in normalized)
+
+        groups = {
+            "correlation_group": self._summarize_exposure_groups(
+                normalized, "correlation_group", bankroll
+            ),
+            "city": self._summarize_exposure_groups(normalized, "city", bankroll),
+            "region": self._summarize_exposure_groups(normalized, "region", bankroll),
+            "event_type": self._summarize_exposure_groups(
+                normalized, "event_type", bankroll
+            ),
+            "resolution_date": self._summarize_exposure_groups(
+                normalized, "resolution_date", bankroll
+            ),
+        }
+
+        overexposed_clusters = [
+            group
+            for group_list in groups.values()
+            for group in group_list
+            if group["overexposed"]
+        ]
+
+        return {
+            "position_count": len(normalized),
+            "total_exposure": round(total_exposure, 2),
+            "exposure_pct_of_bankroll": _pct(total_exposure, bankroll),
+            "worst_case_pnl": round(-total_exposure, 2),
+            "likely_case_pnl": round(sum(pos["expected_pnl"] for pos in normalized), 2),
+            "groups": groups,
+            "overexposed_clusters": overexposed_clusters,
+            "hedge_candidates": _find_hedge_candidates(normalized),
+        }
+
+    def _summarize_exposure_groups(
+        self, positions: List[dict], category: str, bankroll: float
+    ) -> List[dict]:
+        grouped: dict[str, List[dict]] = {}
+        for position in positions:
+            grouped.setdefault(position[category], []).append(position)
+
+        summaries = []
+        for key, items in grouped.items():
+            exposure = sum(item["exposure"] for item in items)
+            likely_case_pnl = sum(item["expected_pnl"] for item in items)
+            exposure_pct = _pct(exposure, bankroll)
+            overexposed = exposure_pct > self.config.max_correlated_pct
+            reason_codes = [f"grouped_by_{category}"]
+            if overexposed:
+                reason_codes.append("over_correlated_exposure_limit")
+            if len(items) > 1:
+                reason_codes.append("multiple_positions")
+            summaries.append(
+                {
+                    "category": category,
+                    "key": key,
+                    "position_count": len(items),
+                    "tickers": sorted(item["ticker"] for item in items),
+                    "exposure": round(exposure, 2),
+                    "exposure_pct_of_bankroll": exposure_pct,
+                    "worst_case_pnl": round(-exposure, 2),
+                    "likely_case_pnl": round(likely_case_pnl, 2),
+                    "overexposed": overexposed,
+                    "reason_codes": reason_codes,
+                }
+            )
+
+        return sorted(
+            summaries,
+            key=lambda summary: (summary["exposure"], summary["position_count"]),
+            reverse=True,
+        )
+
     # ========== 10. COMPLETE OPPORTUNITY SCREEN ==========
 
     def screen_opportunity(
@@ -436,3 +530,106 @@ class QuantEngine:
             "entry_price": entry_price,
             "side": side,
         }
+
+
+def _normalize_risk_position(position: dict) -> dict:
+    ticker = str(position.get("ticker") or "UNKNOWN").upper()
+    side = str(position.get("side") or "yes").lower()
+    quantity = int(position.get("quantity") or 0)
+    entry_price = float(position.get("entry_price") or 0)
+    exposure = max(0.0, quantity * entry_price / 100.0)
+    model_probability = _bounded_probability(position.get("model_probability"), 0.5)
+    win_probability = model_probability if side == "yes" else 1.0 - model_probability
+    expected_pnl = (win_probability * (1.0 - entry_price / 100.0)) - (
+        (1.0 - win_probability) * entry_price / 100.0
+    )
+    city = _normalize_key(position.get("city") or position.get("location"), "unknown")
+    event_type = _normalize_key(
+        position.get("event_type") or position.get("weather_event_type"), "unknown"
+    )
+    resolution_date = _resolution_date_key(position.get("resolution_date"))
+    region = _normalize_key(position.get("region"), "")
+    if not region:
+        region = REGION_BY_CITY.get(city.upper(), "unknown")
+    correlation_group = _normalize_key(
+        position.get("correlation_group") or position.get("correlated_group"),
+        f"{city}:{event_type}:{resolution_date}",
+    )
+
+    return {
+        "ticker": ticker,
+        "side": side,
+        "quantity": quantity,
+        "entry_price": entry_price,
+        "exposure": exposure,
+        "expected_pnl": expected_pnl * quantity,
+        "city": city,
+        "region": region,
+        "event_type": event_type,
+        "resolution_date": resolution_date,
+        "correlation_group": correlation_group,
+    }
+
+
+def _find_hedge_candidates(positions: List[dict]) -> List[dict]:
+    candidates = []
+    for index, left in enumerate(positions):
+        for right_index in range(index + 1, len(positions)):
+            right = positions[right_index]
+            if left["side"] == right["side"]:
+                continue
+            if not _shares_risk_bucket(left, right):
+                continue
+            hedged_exposure = min(left["exposure"], right["exposure"])
+            if hedged_exposure <= 0:
+                continue
+            candidates.append(
+                {
+                    "long_ticker": left["ticker"],
+                    "short_ticker": right["ticker"],
+                    "shared_group": (
+                        left["correlation_group"]
+                        if left["correlation_group"] == right["correlation_group"]
+                        else f"{left['city']}:{left['event_type']}:{left['resolution_date']}"
+                    ),
+                    "hedged_exposure": round(hedged_exposure, 2),
+                    "reason_codes": ["inverse_position", "shared_risk_bucket"],
+                }
+            )
+    return sorted(candidates, key=lambda item: item["hedged_exposure"], reverse=True)
+
+
+def _shares_risk_bucket(left: dict, right: dict) -> bool:
+    return left["correlation_group"] == right["correlation_group"] or (
+        left["city"] == right["city"]
+        and left["event_type"] == right["event_type"]
+        and left["resolution_date"] == right["resolution_date"]
+    )
+
+
+def _bounded_probability(value, default: float) -> float:
+    try:
+        probability = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(0.01, min(0.99, probability))
+
+
+def _normalize_key(value, default: str) -> str:
+    text = str(value or "").strip().lower()
+    return text or default
+
+
+def _resolution_date_key(value) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    text = str(value or "").strip()
+    if not text:
+        return "unknown"
+    return text[:10]
+
+
+def _pct(numerator: float, denominator: float) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(numerator / denominator, 4)
