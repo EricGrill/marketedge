@@ -2,6 +2,7 @@
 """Stateful server with SQLite backend for positions, trades, and model outputs."""
 
 import asyncio
+import json
 import os
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
@@ -15,10 +16,16 @@ from sqlalchemy import (
     String,
     DateTime,
     ForeignKey,
+    Text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
 Base = declarative_base()
+
+SCHEMA_VERSION = "0001_state_and_audit"
+SCHEMA_DESCRIPTION = (
+    "Create state tables, schema migration ledger, and audit event log."
+)
 
 
 class PositionStatus(str, Enum):
@@ -152,6 +159,25 @@ class PortfolioState(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 
+class SchemaMigration(Base):
+    __tablename__ = "schema_migrations"
+
+    version = Column(String(64), primary_key=True)
+    description = Column(String(255), nullable=False)
+    applied_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id = Column(Integer, primary_key=True)
+    event_type = Column(String(80), nullable=False, index=True)
+    subject = Column(String(120), nullable=False, index=True)
+    ticker = Column(String(50), nullable=True, index=True)
+    payload_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 # ========== STATE MANAGER ==========
 
 
@@ -172,11 +198,59 @@ class StateManager:
 
     def _init_db(self):
         Base.metadata.create_all(self.engine)
-        # Initialize portfolio if empty
         with self.Session() as session:
+            if (
+                not session.query(SchemaMigration)
+                .filter_by(version=SCHEMA_VERSION)
+                .first()
+            ):
+                session.add(
+                    SchemaMigration(
+                        version=SCHEMA_VERSION,
+                        description=SCHEMA_DESCRIPTION,
+                    )
+                )
             if not session.query(PortfolioState).first():
                 session.add(PortfolioState())
+            session.commit()
+
+    async def list_schema_migrations(self) -> List[SchemaMigration]:
+        async with self._lock:
+            with self.Session() as session:
+                return (
+                    session.query(SchemaMigration)
+                    .order_by(SchemaMigration.applied_at.asc())
+                    .all()
+                )
+
+    async def record_audit_event(
+        self,
+        event_type: str,
+        subject: str,
+        ticker: str | None = None,
+        payload: Dict[str, Any] | None = None,
+    ) -> int:
+        async with self._lock:
+            with self.Session() as session:
+                event = AuditEvent(
+                    event_type=event_type,
+                    subject=subject,
+                    ticker=ticker,
+                    payload_json=json.dumps(payload or {}, sort_keys=True),
+                )
+                session.add(event)
                 session.commit()
+                return event.id
+
+    async def list_audit_events(self, limit: int = 100) -> List[AuditEvent]:
+        async with self._lock:
+            with self.Session() as session:
+                return (
+                    session.query(AuditEvent)
+                    .order_by(AuditEvent.created_at.desc())
+                    .limit(limit)
+                    .all()
+                )
 
     async def add_position(self, position_data: Dict[str, Any]) -> int:
         async with self._lock:

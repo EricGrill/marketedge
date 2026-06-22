@@ -14,10 +14,14 @@ from rich.table import Table
 from rich.text import Text
 
 from src.config import kalshi_config, trading_config, weather_config
-from src.state import StateManager
+from src.state import SCHEMA_VERSION, StateManager
 from src.formulas import QuantEngine
 from src.backtesting import BacktestEngine, load_trades_csv
-from src.experiments import ExperimentRegistry, parse_key_value_pairs
+from src.experiments import (
+    ExperimentRegistry,
+    ExperimentRegistryError,
+    parse_key_value_pairs,
+)
 from src.doctor import has_failures, has_warnings, run_health_checks
 from src.dashboard import build_dashboard_payload, write_dashboard_payload
 from src.opportunities import OpportunityScanner, load_candidates
@@ -52,6 +56,102 @@ def dashboard(ctx):
     state = ctx.obj["state"]
     app = KalshiQuantApp(state_manager=state)
     app.run()
+
+
+@cli.group()
+def db():
+    """Manage local SQLite persistence and audit trail."""
+
+
+@db.command("init")
+@click.option("--db-path", default=None, help="SQLite database path to initialize.")
+def db_init(db_path):
+    """Initialize the SQLite database and schema ledger."""
+    state = StateManager(db_path)
+    migrations = asyncio.run(state.list_schema_migrations())
+    latest = migrations[-1].version if migrations else "none"
+    console.print(f"[green]Initialized Market Edge database: {state.db_path}[/green]")
+    console.print(f"[dim]Schema version: {latest}[/dim]")
+
+
+@db.command("migrations")
+@click.option("--db-path", default=None, help="SQLite database path to inspect.")
+def db_migrations(db_path):
+    """List recorded schema migrations."""
+    state = StateManager(db_path)
+    migrations = asyncio.run(state.list_schema_migrations())
+    table = Table(title=f"Schema Migrations: {state.db_path}")
+    table.add_column("Version", style="cyan")
+    table.add_column("Applied At")
+    table.add_column("Description")
+
+    for migration in migrations:
+        table.add_row(
+            migration.version,
+            migration.applied_at.isoformat(timespec="seconds"),
+            migration.description,
+        )
+
+    if not migrations:
+        table.add_row("none", "", "")
+
+    console.print(table)
+
+
+@db.command("audit-record")
+@click.option("--db-path", default=None, help="SQLite database path to update.")
+@click.option("--event-type", required=True, help="Audit event type.")
+@click.option("--subject", required=True, help="Strategy, workflow, or actor subject.")
+@click.option("--ticker", default=None, help="Optional market ticker.")
+@click.option("--payload", multiple=True, help="Metadata formatted as key=value.")
+def db_audit_record(db_path, event_type, subject, ticker, payload):
+    """Append an audit event to the local SQLite trail."""
+    try:
+        parsed_payload = parse_key_value_pairs(payload)
+    except ExperimentRegistryError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    state = StateManager(db_path)
+    event_id = asyncio.run(
+        state.record_audit_event(
+            event_type=event_type,
+            subject=subject,
+            ticker=ticker,
+            payload=parsed_payload,
+        )
+    )
+    console.print(f"[green]Recorded audit event {event_id} ({SCHEMA_VERSION})[/green]")
+
+
+@db.command("audit")
+@click.option("--db-path", default=None, help="SQLite database path to inspect.")
+@click.option("--limit", default=25, show_default=True, help="Maximum events to show.")
+def db_audit(db_path, limit):
+    """List recent audit events."""
+    state = StateManager(db_path)
+    events = asyncio.run(state.list_audit_events(limit=limit))
+    table = Table(title=f"Audit Events: {state.db_path}")
+    table.add_column("ID", style="dim")
+    table.add_column("Created")
+    table.add_column("Type", style="cyan")
+    table.add_column("Subject")
+    table.add_column("Ticker")
+    table.add_column("Payload")
+
+    for event in events:
+        table.add_row(
+            str(event.id),
+            event.created_at.isoformat(timespec="seconds"),
+            event.event_type,
+            event.subject,
+            event.ticker or "",
+            event.payload_json,
+        )
+
+    if not events:
+        table.add_row("", "", "none", "", "", "")
+
+    console.print(table)
 
 
 @cli.command()

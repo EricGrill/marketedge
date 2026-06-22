@@ -14,8 +14,8 @@ Market Edge is **experimental and research-first**.
 
 Use local, no-account, analysis, backtest, and dry-run workflows. Do not treat
 this repository as production live-trading software until live-trading safety
-gates, kill switches, audit logs, CI, migrations, and operator diagnostics are
-fully merged and verified.
+gates, kill switches, pre-order risk checks, audit-trail integrations, and
+operator confirmations are fully merged and verified.
 
 ## Repository And Docs
 
@@ -46,6 +46,7 @@ python -m src.cli --help
 Current command groups and commands:
 
 - `doctor` - local setup and readiness checks.
+- `db` - initialize SQLite state, inspect schema migrations, and view/append audit events.
 - `dashboard` - launch the Textual TUI.
 - `dashboard-data` - export dashboard-ready JSON from local state.
 - `analyze` - inspect one ticker/model probability opportunity.
@@ -182,6 +183,31 @@ Local generated state is intentionally not committed:
 - `.env`, `.env.local`, `*.env`
 
 ## Core Workflows
+
+### Initialize Local State
+
+```bash
+python -m src.cli db init --db-path data/kalshi_quant.db
+python -m src.cli db migrations --db-path data/kalshi_quant.db
+python -m src.cli db audit --db-path data/kalshi_quant.db
+```
+
+The default storage path is `MARKETEDGE_DB_PATH` when set, otherwise
+`data/kalshi_quant.db`. First-run initialization creates the SQLite schema,
+records the active schema version in `schema_migrations`, and ensures an empty
+portfolio row exists. The repository also includes an Alembic initial migration
+under `migrations/` for reproducible schema setup outside the app startup path.
+
+Manual audit events can be appended for research or dry-run decisions:
+
+```bash
+python -m src.cli db audit-record \
+  --event-type decision \
+  --subject weather-screen \
+  --ticker RAIN-NYC-TEST \
+  --payload action=pass \
+  --payload edge=0.12
+```
 
 ### Check Local Readiness
 
@@ -364,13 +390,16 @@ primitives, not sufficient production live-trading controls by themselves.
 
 Before live use, Market Edge still needs durable production controls:
 
-- Remote CI and release verification.
 - Explicit live-trading enablement.
 - Global kill switch.
 - Pre-order risk limit enforcement.
 - Daily loss and notional exposure limits.
-- Structured audit logs for every signal, refusal, intent, and result.
-- Schema migrations and operational diagnostics.
+- Strategy and execution integration that writes audit events for every signal,
+  refusal, intent, and result.
+
+Local readiness controls already include remote CI, operator diagnostics,
+configurable SQLite storage, Alembic schema initialization, an application
+schema ledger, and an audit event table with CLI inspection/append commands.
 
 Relevant Linear tracking includes `CHA-1040` through `CHA-1044` for production
 readiness and later enhancement issues for dashboard data, opportunity ranking,

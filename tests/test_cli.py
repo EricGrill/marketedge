@@ -270,3 +270,48 @@ def test_dashboard_data_cli_writes_payload():
     assert result.exit_code == 0
     assert "Wrote dashboard data" in result.output
     assert payload["account"]["bankroll"] == 10_000
+
+
+def test_db_cli_initializes_schema_and_records_audit_events():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        init_result = runner.invoke(
+            cli,
+            ["db", "init", "--db-path", "marketedge.db"],
+        )
+        migrations_result = runner.invoke(
+            cli,
+            ["db", "migrations", "--db-path", "marketedge.db"],
+        )
+        record_result = runner.invoke(
+            cli,
+            [
+                "db",
+                "audit-record",
+                "--db-path",
+                "marketedge.db",
+                "--event-type",
+                "decision",
+                "--subject",
+                "paper-trade",
+                "--ticker",
+                "RAIN-NYC-TEST",
+                "--payload",
+                "action=buy",
+            ],
+        )
+        audit_result = runner.invoke(
+            cli,
+            ["db", "audit", "--db-path", "marketedge.db"],
+        )
+
+    assert init_result.exit_code == 0
+    assert "Initialized Market Edge database" in init_result.output
+    assert "0001_state_and_audit" in init_result.output
+    assert migrations_result.exit_code == 0
+    assert "Schema Migrations" in migrations_result.output
+    assert record_result.exit_code == 0
+    assert "Recorded audit event" in record_result.output
+    assert audit_result.exit_code == 0
+    assert "paper-trade" in audit_result.output
+    assert "RAIN-NYC-TEST" in audit_result.output

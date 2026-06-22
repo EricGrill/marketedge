@@ -1,6 +1,8 @@
+import json
+
 import pytest
 
-from src.state import StateManager
+from src.state import SCHEMA_VERSION, StateManager
 
 
 @pytest.mark.asyncio
@@ -45,3 +47,31 @@ async def test_state_manager_initializes_and_tracks_position_exposure(tmp_path):
     assert after_close.open_positions_count == 0
     assert after_close.total_exposure == 0
     assert after_close.mtd_pnl == 150
+
+
+@pytest.mark.asyncio
+async def test_state_manager_records_schema_and_persists_audit_events(tmp_path):
+    db_path = tmp_path / "kalshi_quant.db"
+    state = StateManager(str(db_path))
+
+    migrations = await state.list_schema_migrations()
+    assert [migration.version for migration in migrations] == [SCHEMA_VERSION]
+
+    event_id = await state.record_audit_event(
+        event_type="signal",
+        subject="weather-screen",
+        ticker="RAIN-NYC-TEST",
+        payload={"edge": "0.12", "decision": "pass"},
+    )
+
+    reopened = StateManager(str(db_path))
+    events = await reopened.list_audit_events()
+
+    assert [event.id for event in events] == [event_id]
+    assert events[0].event_type == "signal"
+    assert events[0].subject == "weather-screen"
+    assert events[0].ticker == "RAIN-NYC-TEST"
+    assert json.loads(events[0].payload_json) == {
+        "decision": "pass",
+        "edge": "0.12",
+    }

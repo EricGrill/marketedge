@@ -15,6 +15,7 @@ live-trading software.
 - Web dashboard: static files under `web/`, served with `python -m http.server 4173 -d web`
 - TUI: `python -m src.cli dashboard`, implemented with Textual in `src/tui/app.py`
 - Local state: SQLite through `src/state.py`, defaulting to `data/kalshi_quant.db`
+  or `MARKETEDGE_DB_PATH` when set.
 
 When the virtual environment is not activated, use `.venv/bin/python` and the
 tooling in `.venv/bin/`.
@@ -23,7 +24,7 @@ tooling in `.venv/bin/`.
 
 - Keep default workflows dry-run, no-account, and local-first.
 - Do not add live-trading behavior without explicit safety gates, risk checks,
-  operator confirmation, and audit logging.
+  operator confirmation, and audit-trail integration.
 - Do not commit `.env`, API credentials, local databases, JSONL ledgers, logs,
   or generated dashboard payloads.
 
@@ -31,6 +32,8 @@ tooling in `.venv/bin/`.
 
 ```bash
 .venv/bin/python -m src.cli doctor
+.venv/bin/python -m src.cli db init
+.venv/bin/python -m src.cli db audit
 .venv/bin/python -m src.cli dashboard-data
 .venv/bin/python -m src.cli opportunities path/to/candidates.csv
 .venv/bin/python -m src.cli experiments list
