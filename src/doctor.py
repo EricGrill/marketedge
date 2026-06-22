@@ -18,6 +18,7 @@ REQUIRED_MODULES = (
     "textual",
     "websockets",
 )
+MIN_PYTHON_VERSION = (3, 10)
 
 
 @dataclass(frozen=True)
@@ -79,7 +80,9 @@ def has_warnings(checks: Iterable[HealthCheck]) -> bool:
 
 
 def _check_python() -> HealthCheck:
-    if sys.version_info >= (3, 12):
+    current = (sys.version_info.major, sys.version_info.minor)
+    minimum = f"{MIN_PYTHON_VERSION[0]}.{MIN_PYTHON_VERSION[1]}"
+    if current >= MIN_PYTHON_VERSION:
         return HealthCheck(
             "python",
             "ok",
@@ -89,7 +92,7 @@ def _check_python() -> HealthCheck:
         "python",
         "fail",
         f"Python {sys.version_info.major}.{sys.version_info.minor} is too old.",
-        "Use Python 3.12 or newer.",
+        f"Use Python {minimum} or newer.",
     )
 
 

@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+
+from src import doctor
 from src.doctor import has_failures, has_warnings, run_health_checks
 
 
@@ -35,3 +38,21 @@ def test_health_checks_fail_for_missing_dependency(tmp_path):
     assert has_failures(checks)
     assert checks[1].name == "module:definitely_missing_marketedge_dependency"
     assert checks[1].status == "fail"
+
+
+def test_python_health_check_accepts_ci_support_floor(monkeypatch):
+    monkeypatch.setattr(doctor.sys, "version_info", SimpleNamespace(major=3, minor=10))
+
+    check = doctor._check_python()
+
+    assert check.status == "ok"
+    assert check.message == "Python 3.10 is supported."
+
+
+def test_python_health_check_rejects_versions_below_ci_floor(monkeypatch):
+    monkeypatch.setattr(doctor.sys, "version_info", SimpleNamespace(major=3, minor=9))
+
+    check = doctor._check_python()
+
+    assert check.status == "fail"
+    assert check.remediation == "Use Python 3.10 or newer."
