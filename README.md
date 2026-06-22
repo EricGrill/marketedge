@@ -381,10 +381,7 @@ paper ledger, doctor checks, and experiment comparison.
 Run the local verification gate before claiming completion:
 
 ```bash
-.venv/bin/black --check src tests
-.venv/bin/flake8 src/ tests/ --max-line-length=120 --ignore=E501,W503
-.venv/bin/pytest tests/ -q
-node --check web/app.js
+.venv/bin/python -m black --check src tests && .venv/bin/python -m flake8 src/ tests/ --max-line-length=120 --ignore=E501,W503 && .venv/bin/python -m pytest tests/ -q && node --check web/app.js
 ```
 
 Current local proof on this branch:
