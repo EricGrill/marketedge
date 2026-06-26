@@ -53,7 +53,7 @@ button {
 }
 
 .terminal-shell {
-  height: 100vh;
+  height: 100dvh;
   min-height: 760px;
   display: flex;
   flex-direction: column;
@@ -73,6 +73,7 @@ button {
 
 .brand,
 .status-pill,
+.data-mode-pill,
 .clock,
 .venue-health,
 .account-strip {
@@ -126,6 +127,32 @@ button {
   gap: 8px;
   color: var(--green);
   font-size: 10px;
+  letter-spacing: 1px;
+}
+
+.data-mode-pill {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.data-mode-pill strong {
+  color: var(--blue);
+  font-size: 10px;
+  letter-spacing: .8px;
+}
+
+.data-mode-pill span,
+.artifact-strip span,
+.artifact-status,
+.market-filters span,
+.ticket-preview span,
+.risk-metrics span,
+.risk-list .label,
+.backtest-diagnostics span {
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 600;
   letter-spacing: 1px;
 }
 
@@ -204,6 +231,51 @@ button {
 .account-strip strong {
   font-size: 14px;
   font-variant-numeric: tabular-nums;
+}
+
+.artifact-strip {
+  min-height: 26px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.artifact-strip span,
+.artifact-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 2px 7px;
+  border: 1px solid #dde5ef;
+  border-radius: 4px;
+  background: #fff;
+  color: var(--muted-strong);
+  white-space: nowrap;
+}
+
+.artifact-strip .state-ok,
+.artifact-status.state-ok {
+  border-color: #b9dfc7;
+  background: #edf8f1;
+  color: var(--green);
+}
+
+.artifact-strip .state-warn,
+.artifact-status.state-warn {
+  border-color: #f0d6a8;
+  background: #fff8e8;
+  color: var(--amber);
+}
+
+.artifact-strip .state-error,
+.artifact-status.state-error {
+  border-color: #f2beb8;
+  background: #fff0ee;
+  color: var(--red);
 }
 
 .positive {
@@ -286,6 +358,61 @@ button {
   overflow: auto;
 }
 
+.market-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  background: #fbfcfd;
+}
+
+.market-filters label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.market-filters select,
+.market-filters input,
+.market-filters button {
+  width: 100%;
+  height: 26px;
+  border: 1px solid #dce2ea;
+  border-radius: 5px;
+  background: #fff;
+  color: #344054;
+  font: inherit;
+  font-size: 10px;
+}
+
+.market-filters input {
+  padding: 0 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.market-filters button {
+  align-self: end;
+  cursor: pointer;
+  color: var(--blue);
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.empty-state {
+  padding: 12px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted-strong);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .8px;
+}
+
 .market-row {
   display: flex;
   flex-direction: column;
@@ -332,6 +459,58 @@ button {
   margin-left: auto;
   color: #a6aeba;
   font-size: 9.5px;
+}
+
+.opportunity-queue {
+  flex: none;
+  border-top: 1px solid var(--line);
+  background: #fff;
+}
+
+.opportunity-queue .section-row {
+  margin: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--panel-soft);
+}
+
+.opportunity-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+  border: 0;
+  border-bottom: 1px solid #f1f3f6;
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.opportunity-row:hover {
+  background: #f7f9fc;
+}
+
+.opportunity-row .rank {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.opportunity-row strong {
+  display: block;
+  font-size: 10px;
+}
+
+.opportunity-row small {
+  color: var(--muted);
+  font-size: 8.5px;
+}
+
+.opportunity-row .score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
 }
 
 .city-badge,
@@ -877,6 +1056,58 @@ button {
   background: var(--red);
 }
 
+.ticket-preview {
+  display: grid;
+  gap: 6px;
+  padding: 8px 9px;
+  border: 1px solid #e5eaf0;
+  border-radius: 6px;
+  background: #fbfcfe;
+}
+
+.ticket-preview strong {
+  color: #344054;
+  font-size: 11px;
+}
+
+.ticket-preview .preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.ticket-preview .preview-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.reason-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.reason-list b {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: var(--muted-strong);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+
+.reason-list b.warn {
+  background: #fff4df;
+  color: var(--amber);
+}
+
+.reason-list b.danger {
+  background: #ffefed;
+  color: var(--red);
+}
+
 .positions-panel {
   flex: 1;
 }
@@ -934,8 +1165,69 @@ button {
 }
 
 .weather-panel,
-.backtest-panel {
+.backtest-panel,
+.risk-panel {
   flex: none;
+}
+
+.risk-body {
+  padding: 10px 12px;
+}
+
+.risk-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.risk-metrics div {
+  padding: 7px 8px;
+  border: 1px solid #e8edf3;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.risk-metrics strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.risk-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.risk-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 1px solid #e8edf3;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.risk-row.warn {
+  border-color: #f0d6a8;
+  background: #fffaf0;
+}
+
+.risk-row strong {
+  font-size: 10.5px;
+}
+
+.risk-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 8.5px;
+}
+
+.risk-row b {
+  font-variant-numeric: tabular-nums;
 }
 
 .weather-body {
@@ -1090,6 +1382,34 @@ button {
   stroke-linecap: round;
 }
 
+.artifact-status {
+  margin: 9px 13px 0;
+}
+
+.backtest-diagnostics {
+  display: grid;
+  gap: 7px;
+  margin: 0 13px 11px;
+}
+
+.diagnostic-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid #eceff4;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.diagnostic-row strong {
+  font-size: 10px;
+}
+
+.diagnostic-row b {
+  font-variant-numeric: tabular-nums;
+}
+
 .fills-bar {
   height: 26px;
   flex: none;
@@ -1125,7 +1445,7 @@ button {
 @media (max-width: 1320px) {
   .terminal-shell {
     height: auto;
-    min-height: 100vh;
+    min-height: 100dvh;
     overflow: visible;
   }
 
@@ -1170,8 +1490,26 @@ button {
   }
 }
 
+@media (max-width: 1100px) {
+  .dashboard-grid {
+    grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  }
+
+  .trade-column,
+  .right-column {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .weather-panel,
+  .backtest-panel {
+    max-height: none;
+  }
+}
+
 @media (max-width: 820px) {
   .topbar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: flex-start;
   }
 
@@ -1180,13 +1518,30 @@ button {
   }
 
   .brand {
+    grid-column: 1 / -1;
     width: 100%;
   }
 
   .status-pill,
+  .data-mode-pill,
   .clock,
   .venue-health {
     min-height: 28px;
+  }
+
+  .artifact-strip {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .artifact-strip span {
+    white-space: normal;
+  }
+
+  .data-mode-pill,
+  .account-strip {
+    grid-column: 1 / -1;
   }
 
   .account-strip {
@@ -1198,6 +1553,10 @@ button {
   .dashboard-grid {
     grid-template-columns: 1fr;
     padding: 8px;
+  }
+
+  .market-filters {
+    grid-template-columns: 1fr;
   }
 
   .market-detail-panel {
@@ -1252,12 +1611,14 @@ button {
   }
 
   .ticket-controls,
-  .current-weather dl {
+  .current-weather dl,
+  .ticket-preview .preview-grid {
     flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .guidance-row {
-    grid-template-columns: repeat(5, minmax(44px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .positions-panel {

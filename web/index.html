@@ -22,7 +22,12 @@
 
         <section class="status-pill">
           <span class="pulse"></span>
-          <strong>DRY RUN</strong>
+          <strong id="run-mode-label">DRY RUN</strong>
+        </section>
+
+        <section class="data-mode-pill" id="data-mode-pill">
+          <strong id="data-mode-label">SAMPLE DATA</strong>
+          <span id="freshness-label">NO GENERATED PAYLOAD</span>
         </section>
 
         <div class="divider"></div>
@@ -35,26 +40,31 @@
         <div class="divider"></div>
 
         <section class="venue-health">
-          <span></span>
-          <strong>KALSHI</strong>
-          <b>23ms</b>
+          <span id="venue-status-dot"></span>
+          <strong id="venue-name">KALSHI</strong>
+          <b id="venue-latency">SAMPLE</b>
         </section>
 
         <section class="account-strip">
           <div>
             <span>ACCOUNT EQUITY</span>
-            <strong>$24,815.40</strong>
+            <strong id="account-equity">$24,815.40</strong>
           </div>
           <div>
             <span>DAY P&amp;L</span>
-            <strong class="positive">+$1,284.20 <small>+5.4%</small></strong>
+            <strong id="account-pnl" class="positive">+$1,284.20 <small>SAMPLE</small></strong>
           </div>
           <div>
             <span>BUYING POWER</span>
-            <strong>$8,940.00</strong>
+            <strong id="account-buying-power">$8,940.00</strong>
           </div>
         </section>
       </header>
+
+      <section class="artifact-strip" aria-label="Dashboard artifact status">
+        <span id="dashboard-artifact-state">Dashboard payload loading</span>
+        <span id="backtest-artifact-state">Backtest artifact loading</span>
+      </section>
 
       <section class="dashboard-grid">
         <aside class="panel market-list-panel">
@@ -62,7 +72,47 @@
             <strong>WEATHER MARKETS</strong>
             <span id="open-count">0 OPEN</span>
           </div>
+          <form class="market-filters" id="market-filters">
+            <label>
+              <span>CITY</span>
+              <select id="filter-city">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label>
+              <span>SIGNAL</span>
+              <select id="filter-signal">
+                <option value="">All</option>
+                <option value="BUY">Buy</option>
+                <option value="HOLD">Hold</option>
+                <option value="SELL">Sell</option>
+              </select>
+            </label>
+            <label>
+              <span>EVENT</span>
+              <select id="filter-event">
+                <option value="">All</option>
+              </select>
+            </label>
+            <label>
+              <span>MIN EDGE</span>
+              <input id="filter-edge" type="number" min="-99" max="99" step="1" value="" placeholder="0" />
+            </label>
+            <label>
+              <span>MIN CONF</span>
+              <input id="filter-confidence" type="number" min="0" max="100" step="5" value="" placeholder="0" />
+            </label>
+            <button id="reset-filters" type="button">RESET</button>
+          </form>
           <div class="market-list" id="market-list"></div>
+          <div class="empty-state hidden" id="market-empty-state">NO MARKETS MATCH FILTERS</div>
+          <section class="opportunity-queue">
+            <div class="section-row">
+              <strong>OPPORTUNITY QUEUE</strong>
+              <span id="opportunity-count">0 RANKED</span>
+            </div>
+            <div id="opportunity-list"></div>
+          </section>
         </aside>
 
         <section class="panel market-detail-panel">
@@ -133,7 +183,7 @@
 
           <footer class="model-foot">
             <span>Ensemble: GFS &middot; ECMWF &middot; HRRR &middot; NBM &middot; MOS</span>
-            <span>model refreshed 14:48 ET</span>
+            <span id="model-refresh-label">model refresh sample</span>
           </footer>
         </section>
 
@@ -189,6 +239,7 @@
                 <dt id="ticket-r3-label"></dt>
                 <dd id="ticket-r3-value"></dd>
               </dl>
+              <section class="ticket-preview" id="ticket-preview" aria-label="Pre-order risk preview"></section>
               <button class="submit-order" id="ticket-submit" type="button"></button>
             </div>
           </section>
@@ -198,7 +249,7 @@
           <section class="panel positions-panel">
             <div class="panel-head green">
               <strong>OPEN POSITIONS</strong>
-              <span>UNREALIZED <b>+$29.40</b></span>
+              <span id="positions-summary">UNREALIZED <b>+$29.40</b></span>
             </div>
             <div class="position-head">
               <span>CONTRACT</span>
@@ -210,26 +261,43 @@
             <div id="positions-list"></div>
           </section>
 
+          <section class="panel risk-panel">
+            <div class="panel-head green">
+              <strong>RISK</strong>
+              <span id="risk-state">SAMPLE</span>
+            </div>
+            <div class="risk-body">
+              <div class="risk-metrics">
+                <div><span>EXPOSURE</span><strong id="risk-exposure">N/A</strong></div>
+                <div><span>BANKROLL</span><strong id="risk-bankroll">N/A</strong></div>
+                <div><span>WORST CASE</span><strong id="risk-worst">N/A</strong></div>
+                <div><span>LIKELY CASE</span><strong id="risk-likely">N/A</strong></div>
+              </div>
+              <div class="risk-list" id="risk-clusters"></div>
+              <div class="risk-list" id="hedge-candidates"></div>
+            </div>
+          </section>
+
           <section class="panel weather-panel">
             <div class="panel-head amber">
-              <strong id="weather-title">WEATHER FEED &middot; NYC</strong>
-              <span>KNYC &middot; 14:51 ET</span>
+              <strong id="weather-title">WEATHER FEED &middot; SAMPLE</strong>
+              <span id="weather-station">NO PAYLOAD</span>
             </div>
             <div class="weather-body">
               <div class="current-weather">
                 <div>
-                  <span>CURRENT &middot; CENTRAL PARK</span>
-                  <strong>84&deg;F</strong>
+                  <span id="weather-location">SAMPLE &middot; CENTRAL PARK</span>
+                  <strong id="weather-current">84&deg;F</strong>
                 </div>
                 <dl>
-                  <div><dt>DEW</dt><dd>61&deg;</dd></div>
-                  <div><dt>WIND</dt><dd>SW 9</dd></div>
-                  <div><dt>RH</dt><dd>46%</dd></div>
+                  <div><dt>DEW</dt><dd id="weather-dew">61&deg;</dd></div>
+                  <div><dt>WIND</dt><dd id="weather-wind">SW 9</dd></div>
+                  <div><dt>RH</dt><dd id="weather-rh">46%</dd></div>
                 </dl>
-                <b>&uarr; +6&deg; since 11:00</b>
+                <b id="weather-change">SAMPLE TREND</b>
               </div>
               <strong class="subhead">TODAY'S HIGH &middot; MODEL GUIDANCE</strong>
-              <div class="guidance-row">
+              <div class="guidance-row" id="guidance-row">
                 <div><span>GFS</span><strong>88&deg;</strong></div>
                 <div><span>ECMWF</span><strong>89&deg;</strong></div>
                 <div><span>HRRR</span><strong>90&deg;</strong></div>
@@ -237,8 +305,8 @@
                 <div><span>NWS</span><strong>89&deg;</strong></div>
               </div>
               <div class="ensemble-row">
-                <span>ENSEMBLE &mu; <b>88.4&deg;</b> &middot; &sigma; <b>1.3&deg;</b> &middot; P(&ge;88&deg;) <b>61%</b></span>
-                <strong>HEAT ADVISORY &middot; THRU 20:00</strong>
+                <span id="weather-ensemble">SAMPLE ENSEMBLE &middot; NOT LIVE</span>
+                <strong id="weather-alert">SAMPLE</strong>
               </div>
             </div>
           </section>
@@ -248,6 +316,7 @@
               <strong>STRATEGY &middot; BACKTEST</strong>
               <span id="backtest-strategy-label">WX-MEANREV v3</span>
             </div>
+            <div class="artifact-status" id="backtest-panel-state">SAMPLE BACKTEST</div>
             <div class="stats-grid">
               <div><span>SHARPE</span><strong id="backtest-sharpe">2.14</strong></div>
               <div><span>WIN RATE</span><strong id="backtest-win-rate">58.3%</strong></div>
@@ -266,14 +335,15 @@
                 <polyline id="backtest-equity-line" points="0,52 18,49 38,51 58,44 80,46 102,39 124,42 148,33 170,36 194,27 218,30 242,21 266,24 290,15 316,18 342,11 368,8 400,4"></polyline>
               </svg>
             </div>
+            <div class="backtest-diagnostics" id="backtest-diagnostics"></div>
           </section>
         </aside>
       </section>
 
       <footer class="fills-bar">
-        <strong>FILLS</strong>
-        <span>14:52:03 <b class="positive">BOT</b> 120 NYC 88&ndash;89&deg; @46&cent; &middot; 14:51:40 <b class="negative">SLD</b> 80 AUS &ge;100&deg; @64&cent; &middot; 14:50:12 <b class="positive">BOT</b> 150 MIA Rain @64&cent; &middot; 14:48:55 <b class="positive">BOT</b> 200 CHI 84&ndash;85&deg; @35&cent; &middot; 14:47:31 <b class="negative">SLD</b> 60 DEN 71&ndash;72&deg; @31&cent;</span>
-        <small>LOCAL &middot; v0.1</small>
+        <strong id="fills-label">SAMPLE FILLS</strong>
+        <span id="fills-feed">No generated fills payload loaded.</span>
+        <small id="footer-version">LOCAL &middot; v0.1</small>
       </footer>
     </main>
 
