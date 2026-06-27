@@ -1,72 +1,129 @@
-# Market Edge
+<div align="center">
 
-Market Edge is an experimental prediction-market quant research and dry-run
-execution workbench. It helps evaluate model-vs-market mispricings, ranked opportunities,
-paper trades, backtests, calibration quality, and local operator readiness.
+# 🌦️ Market Edge
 
-The current implementation starts with Kalshi weather markets. The code is
-structured so the core math, state, backtesting, execution modeling, and
-research workflows can expand to other event-market categories later.
+### A local-first prediction-market quant workbench
 
-## Status
+[![MIT License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776ab.svg?style=flat-square)](https://python.org)
+[![SQLite](https://img.shields.io/badge/storage-SQLite-003b57.svg?style=flat-square)](https://sqlite.org)
+[![Status](https://img.shields.io/badge/status-experimental-orange.svg?style=flat-square)](#safety-first)
 
-Market Edge is **experimental and research-first**.
+Rank model-vs-market mispricings. Run offline backtests. Track paper trades. Score forecast calibration. Operate with dry-run safety gates first.
 
-Use local, no-account, analysis, backtest, and dry-run workflows. Do not treat
-this repository as production live-trading software until live-trading safety
-gates, kill switches, pre-order risk checks, audit-trail integrations, and
-operator confirmations are fully merged and verified.
+[Quick Start](#quick-start) · [Features](#what-it-does) · [CLI](#cli) · [Dashboard](#web-dashboard) · [Safety](#safety-first) · [Contributing](CONTRIBUTING.md)
 
-## Repository And Docs
+</div>
 
-- GitHub: [EricGrill/marketedge](https://github.com/EricGrill/marketedge)
-- Primary branch: `main`
-- License: [MIT](LICENSE)
-- Security policy: [SECURITY.md](SECURITY.md)
-- Contributor guide: [CONTRIBUTING.md](CONTRIBUTING.md)
-- Agent handoff file: `CLAUDE.md`
-- Main user/operator documentation: `README.md`
+---
 
-`CLAUDE.md` contains short project guidance for Claude and other coding agents:
-the product safety posture, common commands, generated-file rules, and
-verification gate. Keep it aligned with this README when changing the app
-surface.
+## What is this?
 
-## Application Surfaces
+**Market Edge** is an experimental, research-first workbench for prediction-market quant analysis. It helps you:
 
-Market Edge has three primary user surfaces.
+- **Screen** event markets for edge, liquidity, risk, and confidence.
+- **Size** positions with Kelly and fractional-Kelly logic.
+- **Backtest** trade ledgers offline and emit dashboard-ready metrics.
+- **Paper-trade** locally with an append-only JSONL ledger.
+- **Calibrate** forecast probabilities against settled outcomes.
+- **Blend** multi-source weather inputs into model probabilities.
+- **Audit** every decision, intent, and result in local SQLite.
 
-### CLI
+The current implementation focuses on **Kalshi weather markets**. The math, state, execution, and research primitives are written so the system can expand to other event-market categories later.
 
-The Click CLI is the main operator and research interface:
+> **Status:** experimental and research-first. Live trading is gated behind multiple safety checks and is **off by default**. See [Safety First](#safety-first) before considering live use.
+
+---
+
+## ✨ What It Does
+
+| Capability | What You Get |
+|------------|--------------|
+| **Opportunity Ranking** | Batch-score candidate markets by fee-adjusted edge, EV, spread, liquidity, confidence, and Kelly sizing. |
+| **Offline Backtesting** | Replay CSV trade ledgers with execution realism, drawdown, Sharpe-like score, and net P&L. |
+| **Paper Trading** | Record no-account buy/sell/selltle events locally before risking capital. |
+| **Calibration Scoring** | Compare forecast probabilities to actual outcomes and surface over/under-confidence. |
+| **Execution Modeling** | Simulate order-book fills, partial fills, slippage, and effective average price. |
+| **Experiment Tracking** | Create, compare, and attach artifacts to research experiment runs. |
+| **Local Dashboard** | Static web dashboard + Textual TUI, no API credentials required. |
+| **Audit Trail** | SQLite-backed audit events for decisions, intents, refusals, and results. |
+
+---
+
+## 🚀 Quick Start
+
+Clone the repo and set up a Python 3.12 environment:
+
+```bash
+git clone https://github.com/EricGrill/marketedge.git
+cd marketedge
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt -c constraints.txt
+```
+
+No API key is needed for local workflows. To use API-backed commands, copy the config template:
+
+```bash
+cp .env.example .env
+```
+
+> Keep `KALSHI_SANDBOX=true` unless you are intentionally working against a live environment.
+
+Initialize local state and run a readiness check:
+
+```bash
+python -m src.cli db init
+python -m src.cli doctor
+```
+
+Launch the TUI dashboard:
+
+```bash
+python -m src.cli dashboard
+```
+
+Or start the static web dashboard:
+
+```bash
+python -m http.server 4173 -d web
+# open http://localhost:4173
+```
+
+---
+
+## 🖥️ CLI
+
+The Click CLI is the main operator interface:
 
 ```bash
 python -m src.cli --help
 ```
 
-Current command groups and commands:
+| Command | Purpose |
+|---------|---------|
+| `doctor` | Local setup and readiness checks. |
+| `db` | Initialize SQLite, inspect migrations, view/append audit events. |
+| `dashboard` | Launch the Textual TUI. |
+| `dashboard-data` | Export dashboard-ready JSON from local state. |
+| `analyze` | Inspect one ticker/model-probability opportunity. |
+| `opportunities` | Rank offline candidates by edge, liquidity, risk, and confidence. |
+| `trade` | Run the weather strategy loop (dry-run by default). |
+| `positions` / `portfolio` | Inspect local SQLite state. |
+| `backtest` | Replay a CSV trade ledger and optionally write dashboard JSON. |
+| `experiments` | Create, list, show, compare, and attach artifacts to experiment records. |
+| `paper` | Record local no-account paper orders, positions, and settlements. |
+| `weather` | Fetch and blend weather forecast inputs. |
+| `formulas` | Display implemented quant formula references. |
 
-- `doctor` - local setup and readiness checks.
-- `db` - initialize SQLite state, inspect schema migrations, and view/append audit events.
-- `dashboard` - launch the Textual TUI.
-- `dashboard-data` - export dashboard-ready JSON from local state.
-- `analyze` - inspect one ticker/model probability opportunity.
-- `opportunities` - rank offline candidate markets by edge, liquidity, risk, and confidence.
-- `trade` - run the weather strategy loop in dry-run or live mode.
-- `positions` and `portfolio` - inspect local SQLite state.
-- `backtest` - replay a CSV trade ledger and optionally write dashboard JSON.
-- `experiments` - create, list, show, compare, and attach artifacts to experiment records.
-- `paper` - record local no-account paper orders, positions, and settlements.
-- `weather` - fetch and blend weather forecast inputs.
-- `formulas` - display implemented quant formula references.
+If the virtual environment is not activated, use `.venv/bin/python -m src.cli` instead of `python -m src.cli`.
 
-If the virtual environment is not activated, use `.venv/bin/python -m src.cli`
-instead of `python -m src.cli`.
+---
 
-### Web Dashboard
+## 🌐 Web Dashboard
 
-The web dashboard is a static, no-account UI under `web/`. It can run without
-Kalshi credentials or a backend service:
+The web dashboard is a static, no-account UI under `web/`. It runs without Kalshi credentials or a backend:
 
 ```bash
 python -m http.server 4173 -d web
@@ -74,29 +131,28 @@ python -m http.server 4173 -d web
 
 Then open `http://localhost:4173`.
 
-The dashboard always has built-in sample data. When generated payloads exist, it
-hydrates from local artifacts:
+The dashboard ships with built-in sample data and hydrates from local artifacts when present:
 
-- `web/data/backtest-summary.json` - generated by `backtest --json-out`.
-- `web/data/dashboard.json` - generated by `dashboard-data`.
+- `web/data/backtest-summary.json` — generated by `backtest --json-out`.
+- `web/data/dashboard.json` — generated by `dashboard-data`.
 
-`web/data/dashboard.json` can include market snapshots, portfolio state, open
-positions, paper-trading state, and backtest metrics. It is a generated local
-artifact and is ignored by git.
+`web/data/dashboard.json` can include market snapshots, portfolio state, open positions, paper-trading state, and backtest metrics. It is a generated local artifact and is ignored by git.
 
-### TUI
+---
 
-The Textual TUI launches from the CLI:
+## 📊 TUI
+
+Launch the Textual dashboard from the CLI:
 
 ```bash
 python -m src.cli dashboard
 ```
 
-It shows local portfolio state, open positions, recent signals, scanner controls,
-risk metrics, and settings. The scanner/settings controls are still a scaffold;
-the durable research workflows currently live in the CLI and local data files.
+It shows local portfolio state, open positions, recent signals, scanner controls, risk metrics, and settings. The scanner/settings controls are still a scaffold; the durable research workflows currently live in the CLI and local data files.
 
-## Current Architecture
+---
+
+## 🏗️ Architecture
 
 ```text
 marketedge/
@@ -134,61 +190,9 @@ marketedge/
     └── data/backtest-summary.json
 ```
 
-## Quickstart
+---
 
-Clone the repository:
-
-```bash
-git clone https://github.com/EricGrill/marketedge.git
-cd marketedge
-```
-
-Create a Python environment and install dependencies. The `constraints.txt`
-lock pins the full resolved dependency tree for reproducible installs:
-
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt -c constraints.txt
-```
-
-Create local configuration when using API-backed commands:
-
-```bash
-cp .env.example .env
-```
-
-Kalshi credentials are not required for local dashboard, backtest, experiment,
-opportunity ranking, paper ledger, or doctor workflows. Keep
-`KALSHI_SANDBOX=true` unless you are intentionally working against a live
-environment.
-
-## Configuration
-
-`.env.example` documents supported local variables:
-
-```env
-KALSHI_API_KEY=your_api_key_here
-KALSHI_API_SECRET=your_api_secret_here
-KALSHI_SANDBOX=true
-
-# Optional URL overrides
-KALSHI_BASE_URL=https://api.elections.kalshi.com
-KALSHI_WS_URL=wss://api.elections.kalshi.com/ws/v2
-
-# Optional local SQLite path
-MARKETEDGE_DB_PATH=data/kalshi_quant.db
-```
-
-Local generated state is intentionally not committed:
-
-- `data/*.db`, `data/*.sqlite`, `data/*.sqlite3`
-- `data/*.jsonl`
-- `web/data/dashboard.json`
-- `.env`, `.env.local`, `*.env`
-
-## Core Workflows
+## 🔧 Core Workflows
 
 ### Initialize Local State
 
@@ -198,11 +202,7 @@ python -m src.cli db migrations --db-path data/kalshi_quant.db
 python -m src.cli db audit --db-path data/kalshi_quant.db
 ```
 
-The default storage path is `MARKETEDGE_DB_PATH` when set, otherwise
-`data/kalshi_quant.db`. First-run initialization creates the SQLite schema,
-records the active schema version in `schema_migrations`, and ensures an empty
-portfolio row exists. The repository also includes an Alembic initial migration
-under `migrations/` for reproducible schema setup outside the app startup path.
+The default storage path is `MARKETEDGE_DB_PATH` when set, otherwise `data/kalshi_quant.db`. First-run initialization creates the SQLite schema, records the active schema version in `schema_migrations`, and ensures an empty portfolio row exists. The repository also includes an Alembic initial migration under `migrations/` for reproducible schema setup outside the app startup path.
 
 Manual audit events can be appended for research or dry-run decisions:
 
@@ -222,9 +222,7 @@ python -m src.cli doctor
 python -m src.cli doctor --strict
 ```
 
-`doctor` checks Python/runtime modules, `.env`, Kalshi credential presence
-without printing secrets, sandbox mode, local SQLite storage, and dashboard
-artifact presence. `--strict` treats warnings as failures.
+`doctor` checks Python/runtime modules, `.env`, Kalshi credential presence without printing secrets, sandbox mode, local SQLite storage, and dashboard artifact presence. `--strict` treats warnings as failures.
 
 ### Generate Dashboard Data
 
@@ -235,8 +233,7 @@ python -m src.cli dashboard-data \
   --backtest-summary web/data/backtest-summary.json
 ```
 
-The web dashboard will use `web/data/dashboard.json` when present and fall back
-to built-in sample data when it is missing.
+The web dashboard will use `web/data/dashboard.json` when present and fall back to built-in sample data when it is missing.
 
 ### Analyze One Market
 
@@ -247,8 +244,7 @@ python -m src.cli analyze \
   --side yes
 ```
 
-The current `analyze` command uses placeholder bid/ask values. Use
-`opportunities` for batch offline ranking from explicit candidate data.
+The current `analyze` command uses placeholder bid/ask values. Use `opportunities` for batch offline ranking from explicit candidate data.
 
 ### Rank Opportunity Candidates
 
@@ -265,12 +261,9 @@ Candidate CSV/JSON/JSONL rows require:
 - `yes_bid`
 - `yes_ask`
 
-Optional fields include `title`, `no_bid`, `no_ask`, `confidence`, `volume`,
-`open_interest`, and `resolution_date`.
+Optional fields include `title`, `no_bid`, `no_ask`, `confidence`, `volume`, `open_interest`, and `resolution_date`.
 
-Results include rank, YES/NO side, action, score, fee-adjusted edge, expected
-value, sizing hint, annualized yield, risk of ruin, confidence, and reason codes
-such as `EDGE_OK`, `SPREAD_TOO_WIDE`, and `LOW_CONFIDENCE`.
+Results include rank, YES/NO side, action, score, fee-adjusted edge, expected value, sizing hint, annualized yield, risk of ruin, confidence, and reason codes such as `EDGE_OK`, `SPREAD_TOO_WIDE`, and `LOW_CONFIDENCE`.
 
 ### Run An Offline Backtest
 
@@ -320,9 +313,7 @@ execution = ExecutionModel().fill(
 executed_trade = ExecutionModel().apply_to_backtest_trade(trade, execution)
 ```
 
-Execution metadata is carried into backtest trade results so summaries can show
-requested quantity, filled quantity, unfilled quantity, and effective average
-entry price.
+Execution metadata is carried into backtest trade results so summaries can show requested quantity, filled quantity, unfilled quantity, and effective average entry price.
 
 ### Track And Compare Experiments
 
@@ -341,8 +332,7 @@ python -m src.cli experiments add-artifact <run-id> path/to/artifact.json
 ```
 
 Experiment records are append-only JSONL in `data/experiments.jsonl` by default.
-Comparison loads referenced JSON artifacts when present and reports metric
-deltas such as return, net P&L, Sharpe-like score, drawdown, and average edge.
+Comparison loads referenced JSON artifacts when present and reports metric deltas such as return, net P&L, Sharpe-like score, drawdown, and average edge.
 
 ### Record Paper Trades
 
@@ -358,8 +348,7 @@ python -m src.cli paper positions
 python -m src.cli paper settle --ticker HIGHNY-26JUN18-B88.5 --winning-side yes
 ```
 
-Paper ledger events are append-only JSONL in `data/paper-ledger.jsonl` by
-default. They are local dry-run records and do not call the Kalshi API.
+Paper ledger events are append-only JSONL in `data/paper-ledger.jsonl` by default. They are local dry-run records and do not call the Kalshi API.
 
 ### Fetch Weather Data
 
@@ -371,10 +360,11 @@ python -m src.cli weather \
   --threshold 1.0
 ```
 
-The weather implementation currently blends NWS-style, Open-Meteo-style,
-analog, microclimate, and NWS delta inputs.
+The weather implementation currently blends NWS-style, Open-Meteo-style, analog, microclimate, and NWS delta inputs.
 
-## Quant And Risk Features
+---
+
+## 🧮 Quant And Risk Features
 
 `src/formulas.py` currently implements:
 
@@ -388,11 +378,11 @@ analog, microclimate, and NWS delta inputs.
 - Correlation exposure estimation.
 - Full opportunity screening.
 
-The codebase also includes max position percentage, max correlated exposure,
-spread-based size reduction, and auto-close concepts. These are research/risk
-primitives, not sufficient production live-trading controls by themselves.
+The codebase also includes max position percentage, max correlated exposure, spread-based size reduction, and auto-close concepts. These are research/risk primitives, not sufficient production live-trading controls by themselves.
 
-## Safety And Production Readiness
+---
+
+## 🛡️ Safety First
 
 Before live use, Market Edge still needs durable production controls:
 
@@ -400,22 +390,45 @@ Before live use, Market Edge still needs durable production controls:
 - Global kill switch.
 - Pre-order risk limit enforcement.
 - Daily loss and notional exposure limits.
-- Strategy and execution integration that writes audit events for every signal,
-  refusal, intent, and result.
+- Strategy and execution integration that writes audit events for every signal, refusal, intent, and result.
 
-Local readiness controls already include remote CI, operator diagnostics,
-configurable SQLite storage, Alembic schema initialization, an application
-schema ledger, and an audit event table with CLI inspection/append commands.
+Local readiness controls already include remote CI, operator diagnostics, configurable SQLite storage, Alembic schema initialization, an application schema ledger, and an audit event table with CLI inspection/append commands.
 
-The live-trading path fails closed by default. Running `trade --live` requires
-the global kill switch disengaged, `MARKETEDGE_ALLOW_LIVE=true`, both Kalshi
-credentials present, and an explicit `--confirm-live` confirmation; any missing
-gate exits before a live client is created. Dry run is always the default.
+The live-trading path **fails closed by default**. Running `trade --live` requires the global kill switch disengaged, `MARKETEDGE_ALLOW_LIVE=true`, both Kalshi credentials present, and an explicit `--confirm-live` confirmation; any missing gate exits before a live client is created. Dry run is always the default.
 
-Planned production-readiness and research enhancements are tracked publicly on
-the [GitHub issues](https://github.com/EricGrill/marketedge/issues) board.
+Use local, no-account, analysis, backtest, and dry-run workflows. Do not treat this repository as production live-trading software until live-trading safety gates, kill switches, pre-order risk checks, audit-trail integrations, and operator confirmations are fully merged and verified.
 
-## Verification
+Planned production-readiness and research enhancements are tracked publicly on the [GitHub issues](https://github.com/EricGrill/marketedge/issues) board.
+
+---
+
+## ⚙️ Configuration
+
+`.env.example` documents supported local variables:
+
+```env
+KALSHI_API_KEY=your_api_key_here
+KALSHI_API_SECRET=your_api_secret_here
+KALSHI_SANDBOX=true
+
+# Optional URL overrides
+KALSHI_BASE_URL=https://api.elections.kalshi.com
+KALSHI_WS_URL=wss://api.elections.kalshi.com/ws/v2
+
+# Optional local SQLite path
+MARKETEDGE_DB_PATH=data/kalshi_quant.db
+```
+
+Local generated state is intentionally not committed:
+
+- `data/*.db`, `data/*.sqlite`, `data/*.sqlite3`
+- `data/*.jsonl`
+- `web/data/dashboard.json`
+- `.env`, `.env.local`, `*.env`
+
+---
+
+## ✅ Verification
 
 Run the local verification gate before claiming completion:
 
@@ -427,18 +440,16 @@ Current local proof on this branch:
 
 - Black passes for `src` and `tests`.
 - flake8 passes for `src` and `tests`.
-- pytest passes with CLI, dashboard, doctor, opportunities, paper ledger,
-  formula, settlement, calibration, execution, experiment, backtesting, and
-  SQLite state coverage.
+- pytest passes with CLI, dashboard, doctor, opportunities, paper ledger, formula, settlement, calibration, execution, experiment, backtesting, and SQLite state coverage.
 - `node --check web/app.js` passes.
 
-Known warning noise currently comes from existing `datetime.utcnow()` usage and
-SQLAlchemy legacy APIs. Warnings are not currently fatal.
+Known warning noise currently comes from existing `datetime.utcnow()` usage and SQLAlchemy legacy APIs. Warnings are not currently fatal.
 
-## Development Workflow
+---
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor guide. In short,
-use a clearly named feature branch off `main`:
+## 🤝 Development Workflow
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor guide. In short, use a clearly named feature branch off `main`:
 
 ```bash
 git checkout main
@@ -452,14 +463,11 @@ Before opening a pull request, run the verification gate and include:
 - Verification commands and results.
 - Known gaps or follow-up work.
 
-The pull request template includes a no-secrets / no-generated-data checklist —
-please complete it.
+The pull request template includes a no-secrets / no-generated-data checklist — please complete it.
 
 ### Refresh And Audit Dependencies
 
-Direct dependencies live in `requirements.txt`; `constraints.txt` pins the full
-resolved tree. To refresh after changing a dependency, recreate a clean
-environment, reinstall, run the gate, then regenerate the lock:
+Direct dependencies live in `requirements.txt`; `constraints.txt` pins the full resolved tree. To refresh after changing a dependency, recreate a clean environment, reinstall, run the gate, then regenerate the lock:
 
 ```bash
 python -m pip freeze | grep -viE '^-e |marketedge' > constraints.txt
@@ -471,23 +479,36 @@ Audit installed dependencies for known vulnerabilities (also run weekly in CI):
 uvx pip-audit --strict
 ```
 
-## License
+---
+
+## 📄 License
 
 Market Edge is released under the [MIT License](LICENSE).
 
-## Security And Open-Source Readiness
+---
 
-Do not commit real API keys or trading credentials. Use `.env` for local
-secrets; it is git-ignored.
+## 🔐 Security And Open-Source Readiness
 
-To report a vulnerability, follow the [security policy](SECURITY.md) and use a
-private channel — do not open a public issue.
+Do not commit real API keys or trading credentials. Use `.env` for local secrets; it is git-ignored.
 
-Before publishing or re-publishing, run the
-[pre-public release checklist](docs/pre-public-checklist.md), which verifies
-that no secrets, databases, ledgers, `.omx/` state, or generated dashboard
-payloads are tracked or present in git history. A scripted version is available:
+To report a vulnerability, follow the [security policy](SECURITY.md) and use a private channel — do not open a public issue.
+
+Before publishing or re-publishing, run the [pre-public release checklist](docs/pre-public-checklist.md), which verifies that no secrets, databases, ledgers, `.omx/` state, or generated dashboard payloads are tracked or present in git history. A scripted version is available:
 
 ```bash
 ./scripts/pre_public_audit.sh
 ```
+
+---
+
+## Repository And Docs
+
+- GitHub: [EricGrill/marketedge](https://github.com/EricGrill/marketedge)
+- Primary branch: `main`
+- License: [MIT](LICENSE)
+- Security policy: [SECURITY.md](SECURITY.md)
+- Contributor guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Agent handoff file: [CLAUDE.md](CLAUDE.md)
+- Main user/operator documentation: [README.md](README.md)
+
+`CLAUDE.md` contains short project guidance for Claude and other coding agents: the product safety posture, common commands, generated-file rules, and verification gate. Keep it aligned with this README when changing the app surface.
