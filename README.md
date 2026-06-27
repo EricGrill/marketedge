@@ -11,7 +11,7 @@
 
 Rank model-vs-market mispricings. Run offline backtests. Track paper trades. Score forecast calibration. Operate with dry-run safety gates first.
 
-[Quick Start](#quick-start) · [Features](#what-it-does) · [CLI](#cli) · [Dashboard](#web-dashboard) · [Safety](#safety-first) · [Contributing](CONTRIBUTING.md)
+[Install](#install) · [Quick Start](#quick-start) · [Features](#what-it-does) · [CLI](#cli) · [Dashboard](#web-dashboard) · [Safety](#safety-first) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -35,6 +35,47 @@ The current implementation focuses on **Kalshi weather markets**. The math, stat
 
 ---
 
+## 📦 Install
+
+Pick the one-shot path that matches your setup. No Python knowledge required for the first two.
+
+### Option 1 — Homebrew (macOS)
+
+```bash
+brew tap ericgrill/tap
+brew install --HEAD marketedge
+```
+
+This installs the `marketedge` CLI globally. Upgrades are `brew reinstall --HEAD marketedge`.
+
+### Option 2 — Docker Compose
+
+```bash
+git clone https://github.com/EricGrill/marketedge.git
+cd marketedge
+docker compose up web
+```
+
+Then open `http://localhost:4173` for the web dashboard. Run CLI commands with:
+
+```bash
+docker compose run --rm marketedge doctor
+docker compose run --rm marketedge --help
+```
+
+### Option 3 — Python 3.12
+
+```bash
+git clone https://github.com/EricGrill/marketedge.git
+cd marketedge
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt -c constraints.txt
+```
+
+---
+
 ## ✨ What It Does
 
 | Capability | What You Get |
@@ -52,16 +93,7 @@ The current implementation focuses on **Kalshi weather markets**. The math, stat
 
 ## 🚀 Quick Start
 
-Clone the repo and set up a Python 3.12 environment:
-
-```bash
-git clone https://github.com/EricGrill/marketedge.git
-cd marketedge
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt -c constraints.txt
-```
+After installing via [Homebrew](#option-1--homebrew-macos), [Docker](#option-2--docker-compose), or [Python](#option-3--python-312):
 
 No API key is needed for local workflows. To use API-backed commands, copy the config template:
 
@@ -74,14 +106,14 @@ cp .env.example .env
 Initialize local state and run a readiness check:
 
 ```bash
-python -m src.cli db init
-python -m src.cli doctor
+marketedge db init
+marketedge doctor
 ```
 
 Launch the TUI dashboard:
 
 ```bash
-python -m src.cli dashboard
+marketedge dashboard
 ```
 
 Or start the static web dashboard:
@@ -96,6 +128,12 @@ python -m http.server 4173 -d web
 ## 🖥️ CLI
 
 The Click CLI is the main operator interface:
+
+```bash
+marketedge --help
+```
+
+If you installed from source without the `marketedge` entry point, use:
 
 ```bash
 python -m src.cli --help
@@ -117,7 +155,7 @@ python -m src.cli --help
 | `weather` | Fetch and blend weather forecast inputs. |
 | `formulas` | Display implemented quant formula references. |
 
-If the virtual environment is not activated, use `.venv/bin/python -m src.cli` instead of `python -m src.cli`.
+If the virtual environment is not activated, use `.venv/bin/marketedge` instead of `marketedge`.
 
 ---
 
@@ -145,7 +183,7 @@ The dashboard ships with built-in sample data and hydrates from local artifacts 
 Launch the Textual dashboard from the CLI:
 
 ```bash
-python -m src.cli dashboard
+marketedge dashboard
 ```
 
 It shows local portfolio state, open positions, recent signals, scanner controls, risk metrics, and settings. The scanner/settings controls are still a scaffold; the durable research workflows currently live in the CLI and local data files.
@@ -197,9 +235,9 @@ marketedge/
 ### Initialize Local State
 
 ```bash
-python -m src.cli db init --db-path data/kalshi_quant.db
-python -m src.cli db migrations --db-path data/kalshi_quant.db
-python -m src.cli db audit --db-path data/kalshi_quant.db
+marketedge db init --db-path data/kalshi_quant.db
+marketedge db migrations --db-path data/kalshi_quant.db
+marketedge db audit --db-path data/kalshi_quant.db
 ```
 
 The default storage path is `MARKETEDGE_DB_PATH` when set, otherwise `data/kalshi_quant.db`. First-run initialization creates the SQLite schema, records the active schema version in `schema_migrations`, and ensures an empty portfolio row exists. The repository also includes an Alembic initial migration under `migrations/` for reproducible schema setup outside the app startup path.
@@ -207,7 +245,7 @@ The default storage path is `MARKETEDGE_DB_PATH` when set, otherwise `data/kalsh
 Manual audit events can be appended for research or dry-run decisions:
 
 ```bash
-python -m src.cli db audit-record \
+marketedge db audit-record \
   --event-type decision \
   --subject weather-screen \
   --ticker RAIN-NYC-TEST \
@@ -218,8 +256,8 @@ python -m src.cli db audit-record \
 ### Check Local Readiness
 
 ```bash
-python -m src.cli doctor
-python -m src.cli doctor --strict
+marketedge doctor
+marketedge doctor --strict
 ```
 
 `doctor` checks Python/runtime modules, `.env`, Kalshi credential presence without printing secrets, sandbox mode, local SQLite storage, and dashboard artifact presence. `--strict` treats warnings as failures.
@@ -227,7 +265,7 @@ python -m src.cli doctor --strict
 ### Generate Dashboard Data
 
 ```bash
-python -m src.cli dashboard-data \
+marketedge dashboard-data \
   --out web/data/dashboard.json \
   --paper-ledger data/paper-ledger.jsonl \
   --backtest-summary web/data/backtest-summary.json
@@ -238,7 +276,7 @@ The web dashboard will use `web/data/dashboard.json` when present and fall back 
 ### Analyze One Market
 
 ```bash
-python -m src.cli analyze \
+marketedge analyze \
   --ticker RAIN-NYC-2026-05-15 \
   --model-prob 0.65 \
   --side yes
@@ -249,7 +287,7 @@ The current `analyze` command uses placeholder bid/ask values. Use `opportunitie
 ### Rank Opportunity Candidates
 
 ```bash
-python -m src.cli opportunities path/to/candidates.csv \
+marketedge opportunities path/to/candidates.csv \
   --bankroll 10000 \
   --json-out web/data/opportunities.json
 ```
@@ -268,9 +306,9 @@ Results include rank, YES/NO side, action, score, fee-adjusted edge, expected va
 ### Run An Offline Backtest
 
 ```bash
-python -m src.cli backtest path/to/trades.csv --bankroll 10000
+marketedge backtest path/to/trades.csv --bankroll 10000
 
-python -m src.cli backtest path/to/trades.csv \
+marketedge backtest path/to/trades.csv \
   --bankroll 10000 \
   --json-out web/data/backtest-summary.json
 ```
@@ -318,17 +356,17 @@ Execution metadata is carried into backtest trade results so summaries can show 
 ### Track And Compare Experiments
 
 ```bash
-python -m src.cli experiments create \
+marketedge experiments create \
   --strategy wx-meanrev \
   --param edge=0.04 \
   --data-ref data/snapshots/wx.jsonl \
   --artifact web/data/backtest-summary.json \
   --model-version v1
 
-python -m src.cli experiments list
-python -m src.cli experiments show <run-id>
-python -m src.cli experiments compare <run-id-a> <run-id-b>
-python -m src.cli experiments add-artifact <run-id> path/to/artifact.json
+marketedge experiments list
+marketedge experiments show <run-id>
+marketedge experiments compare <run-id-a> <run-id-b>
+marketedge experiments add-artifact <run-id> path/to/artifact.json
 ```
 
 Experiment records are append-only JSONL in `data/experiments.jsonl` by default.
@@ -337,15 +375,15 @@ Comparison loads referenced JSON artifacts when present and reports metric delta
 ### Record Paper Trades
 
 ```bash
-python -m src.cli paper order \
+marketedge paper order \
   --ticker HIGHNY-26JUN18-B88.5 \
   --side yes \
   --action buy \
   --quantity 10 \
   --price 40
 
-python -m src.cli paper positions
-python -m src.cli paper settle --ticker HIGHNY-26JUN18-B88.5 --winning-side yes
+marketedge paper positions
+marketedge paper settle --ticker HIGHNY-26JUN18-B88.5 --winning-side yes
 ```
 
 Paper ledger events are append-only JSONL in `data/paper-ledger.jsonl` by default. They are local dry-run records and do not call the Kalshi API.
@@ -353,7 +391,7 @@ Paper ledger events are append-only JSONL in `data/paper-ledger.jsonl` by defaul
 ### Fetch Weather Data
 
 ```bash
-python -m src.cli weather \
+marketedge weather \
   --lat 40.71 \
   --lon -74.01 \
   --event-type rain \

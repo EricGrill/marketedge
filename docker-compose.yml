@@ -1,0 +1,23 @@
+services:
+  marketedge:
+    build: .
+    image: ericgrill/marketedge:latest
+    container_name: marketedge
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./web/data:/app/web/data
+      - ./.env:/app/.env:ro
+    working_dir: /app
+
+  web:
+    build: .
+    image: ericgrill/marketedge:latest
+    container_name: marketedge-web
+    command: ["python", "-m", "http.server", "4173", "-d", "web"]
+    ports:
+      - "4173:4173"
+    volumes:
+      - ./web:/app/web
+    working_dir: /app
