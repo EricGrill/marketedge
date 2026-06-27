@@ -2,15 +2,20 @@
 """Weather trading strategy for Kalshi prediction markets."""
 
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 from src.config import trading_config
 from src.formulas import QuantEngine
+from src.orders import OrderLedger
 from src.state import StateManager
 from src.api.client import KalshiRestClient, WeatherMarketScanner
 from src.weather.data import WeatherModelEngine
+from src.utils import parse_timestamp, utcnow
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -40,10 +45,12 @@ class WeatherTradingStrategy:
         state_manager: StateManager,
         kalshi_client: KalshiRestClient,
         quant_engine: QuantEngine = None,
+        order_ledger: OrderLedger | None = None,
     ):
         self.state = state_manager
         self.kalshi = kalshi_client
         self.quant = quant_engine or QuantEngine()
+        self.order_ledger = order_ledger or OrderLedger()
         self.scanner = WeatherMarketScanner(kalshi_client)
         self.weather = WeatherModelEngine()
         self.running = False
@@ -57,9 +64,9 @@ class WeatherTradingStrategy:
         bankroll = portfolio.bankroll if portfolio else trading_config.initial_bankroll
 
         # 2. Scan for weather markets
-        print("[Strategy] Scanning weather markets...")
+        logger.info("Scanning weather markets...")
         weather_markets = await self.scanner.scan_weather_markets(limit=50)
-        print(f"[Strategy] Found {len(weather_markets)} weather markets")
+        logger.info("Found %d weather markets", len(weather_markets))
 
         for market in weather_markets:
             try:
@@ -67,7 +74,7 @@ class WeatherTradingStrategy:
                 if signal:
                     signals.append(signal)
             except Exception as e:
-                print(f"[Strategy] Error evaluating {market.get('ticker')}: {e}")
+                logger.warning("Error evaluating %s: %s", market.get("ticker"), e)
                 continue
 
         return signals
@@ -253,10 +260,10 @@ class WeatherTradingStrategy:
         close_date = market.get("close_date") or market.get("expiration_date")
         if close_date:
             try:
-                return datetime.fromisoformat(close_date.replace("Z", "+00:00"))
+                return parse_timestamp(close_date)
             except ValueError:
                 pass
-        return datetime.utcnow() + timedelta(days=7)
+        return utcnow() + timedelta(days=7)
 
     async def _check_correlation_exposure(
         self, location: str, event_type: str, new_size: float
@@ -286,32 +293,88 @@ class WeatherTradingStrategy:
 
     async def execute_signal(self, signal: TradeSignal) -> Dict[str, Any]:
         """Execute a trade signal."""
-        print(
-            f"[Strategy] EXECUTING: {signal.ticker} {signal.side} @ {signal.entry_price}¢ x{signal.quantity}"
+        logger.info(
+            "EXECUTING: %s %s @ %s¢ x%d",
+            signal.ticker,
+            signal.side,
+            signal.entry_price,
+            signal.quantity,
         )
-
-        # Place order
-        order = await self.kalshi.place_order(
+        client_order_id = f"weather_{utcnow().strftime('%Y%m%d%H%M%S')}"
+        order_record = self.order_ledger.submit(
+            order_id=client_order_id,
             ticker=signal.ticker,
             side=signal.side,
             action=signal.action,
-            type="limit",
-            count=signal.quantity,
-            price=int(signal.entry_price),
-            client_order_id=f"weather_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+            order_type="limit",
+            requested_quantity=signal.quantity,
+            limit_price=int(signal.entry_price),
         )
 
+        # Place order
+        try:
+            order = await self.kalshi.place_order(
+                ticker=signal.ticker,
+                side=signal.side,
+                action=signal.action,
+                type="limit",
+                count=signal.quantity,
+                price=int(signal.entry_price),
+                client_order_id=client_order_id,
+            )
+        except Exception as exc:
+            order_record = self.order_ledger.reject(
+                client_order_id, reason=f"place_order failed: {exc}"
+            )
+            logger.exception("Order placement failed")
+            return {"success": False, "error": str(exc), "order_record": order_record}
+
         if order.get("error"):
-            print(f"[Strategy] Order failed: {order}")
-            return {"success": False, "error": order}
+            order_record = self.order_ledger.reject(client_order_id, reason=str(order))
+            logger.error("Order failed: %s", order)
+            return {"success": False, "error": order, "order_record": order_record}
+
+        rejection_reason = self._order_rejection_reason(order)
+        if rejection_reason:
+            order_record = self.order_ledger.reject(
+                client_order_id, reason=rejection_reason
+            )
+            logger.error("Order rejected: %s", rejection_reason)
+            return {
+                "success": False,
+                "error": rejection_reason,
+                "order": order,
+                "order_record": order_record,
+            }
+
+        filled_quantity, average_fill_price = self._extract_fill(
+            order,
+            requested_quantity=signal.quantity,
+            fallback_price=signal.entry_price,
+        )
+        if filled_quantity > 0:
+            order_record = self.order_ledger.record_fill(
+                client_order_id,
+                quantity=filled_quantity,
+                price=average_fill_price,
+            )
+        else:
+            logger.info("Order %s accepted with no immediate fill", client_order_id)
+            return {
+                "success": True,
+                "position_id": None,
+                "order": order,
+                "order_record": order_record,
+                "signal": signal,
+            }
 
         # Record position in state
         position_data = {
             "ticker": signal.ticker,
             "event_title": signal.reason,
             "side": signal.side,
-            "entry_price": signal.entry_price / 100,
-            "quantity": signal.quantity,
+            "entry_price": average_fill_price / 100,
+            "quantity": filled_quantity,
             "status": "open",
             "model_probability": signal.model_probability,
             "market_probability": signal.market_probability,
@@ -325,9 +388,9 @@ class WeatherTradingStrategy:
                 if "@" in signal.reason
                 else ""
             ),
-            "forecast_cycle": datetime.utcnow(),
-            "resolution_date": datetime.utcnow() + timedelta(days=7),
-            "position_pct_of_bankroll": (signal.entry_price / 100 * signal.quantity)
+            "forecast_cycle": utcnow(),
+            "resolution_date": utcnow() + timedelta(days=7),
+            "position_pct_of_bankroll": (average_fill_price / 100 * filled_quantity)
             / trading_config.initial_bankroll,
         }
 
@@ -337,13 +400,14 @@ class WeatherTradingStrategy:
             "success": True,
             "position_id": position_id,
             "order": order,
+            "order_record": order_record,
             "signal": signal,
         }
 
     async def run_continuous(self, interval_seconds: int = 300):
         """Run continuous scanning and trading loop."""
         self.running = True
-        print(f"[Strategy] Starting continuous loop (interval: {interval_seconds}s)")
+        logger.info("Starting continuous loop (interval: %ds)", interval_seconds)
 
         while self.running:
             try:
@@ -355,9 +419,14 @@ class WeatherTradingStrategy:
 
                 # Check existing positions for exit signals
                 await self._check_exits()
+                expired_orders = self.order_ledger.reconcile_timeouts(
+                    trading_config.order_ttl_seconds
+                )
+                if expired_orders:
+                    logger.warning("Expired %d stale orders", len(expired_orders))
 
-            except Exception as e:
-                print(f"[Strategy] Loop error: {e}")
+            except Exception:
+                logger.exception("Loop error")
 
             await asyncio.sleep(interval_seconds)
 
@@ -367,15 +436,120 @@ class WeatherTradingStrategy:
 
         for pos in open_positions:
             days_to_exp = (
-                (pos.resolution_date - datetime.utcnow()).days
-                if pos.resolution_date
-                else 1
+                (pos.resolution_date - utcnow()).days if pos.resolution_date else 1
             )
 
             if days_to_exp <= 1:
-                print(f"[Strategy] Closing {pos.ticker} before expiration")
+                logger.info("Closing %s before expiration", pos.ticker)
 
     async def stop(self):
         """Stop the strategy."""
         self.running = False
         await self.weather.close()
+
+    def _extract_fill(
+        self,
+        order_response: Dict[str, Any],
+        requested_quantity: int,
+        fallback_price: float,
+    ) -> tuple[int, float]:
+        """Return immediate filled quantity and average fill price in cents."""
+        payloads = self._order_payloads(order_response)
+        fills = self._first_list(payloads, ("fills", "executions"))
+        if fills:
+            filled_quantity = 0
+            notional = 0.0
+            for fill in fills:
+                if not isinstance(fill, dict):
+                    continue
+                quantity = self._first_int([fill], ("quantity", "count", "qty"))
+                price = self._first_float(
+                    [fill], ("price", "fill_price", "average_price", "avg_price")
+                )
+                if quantity and price is not None:
+                    filled_quantity += quantity
+                    notional += quantity * price
+            if filled_quantity:
+                return filled_quantity, notional / filled_quantity
+
+        filled_quantity = self._first_int(
+            payloads,
+            (
+                "filled_quantity",
+                "filled_count",
+                "fill_count",
+                "executed_quantity",
+                "executed_count",
+            ),
+        )
+        status = self._order_status(order_response)
+        if filled_quantity is None:
+            if status in {"open", "pending", "resting", "working"}:
+                filled_quantity = 0
+            elif status in {"partially_filled", "partial_fill"}:
+                filled_quantity = 0
+            else:
+                filled_quantity = requested_quantity
+
+        filled_quantity = max(0, min(filled_quantity, requested_quantity))
+        average_fill_price = self._first_float(
+            payloads, ("average_price", "avg_price", "fill_price", "price")
+        )
+        if average_fill_price is None:
+            average_fill_price = fallback_price
+        return filled_quantity, average_fill_price
+
+    def _order_rejection_reason(self, order_response: Dict[str, Any]) -> str:
+        status = self._order_status(order_response)
+        if status not in {"rejected", "cancelled", "canceled", "expired"}:
+            return ""
+        payloads = self._order_payloads(order_response)
+        for payload in payloads:
+            for key in ("reason", "message", "detail", "error"):
+                if payload.get(key):
+                    return str(payload[key])
+        return f"order status is {status}"
+
+    def _order_status(self, order_response: Dict[str, Any]) -> str:
+        for payload in self._order_payloads(order_response):
+            status = payload.get("status") or payload.get("state")
+            if status:
+                return str(status).lower()
+        return ""
+
+    def _order_payloads(self, order_response: Dict[str, Any]) -> List[Dict[str, Any]]:
+        payloads = [order_response]
+        nested = order_response.get("order")
+        if isinstance(nested, dict):
+            payloads.insert(0, nested)
+        return payloads
+
+    def _first_list(
+        self, payloads: List[Dict[str, Any]], keys: tuple[str, ...]
+    ) -> list | None:
+        for payload in payloads:
+            for key in keys:
+                value = payload.get(key)
+                if isinstance(value, list):
+                    return value
+        return None
+
+    def _first_int(
+        self, payloads: List[Dict[str, Any]], keys: tuple[str, ...]
+    ) -> int | None:
+        for payload in payloads:
+            for key in keys:
+                value = payload.get(key)
+                if value is not None:
+                    return int(value)
+        return None
+
+    def _first_float(
+        self, payloads: List[Dict[str, Any]], keys: tuple[str, ...]
+    ) -> float | None:
+        for payload in payloads:
+            for key in keys:
+                value = payload.get(key)
+                if value is not None:
+                    return float(value)
+        return None

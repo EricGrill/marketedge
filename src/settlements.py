@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping
 
 from src.backtesting import BacktestTradeInput
+from src.utils import parse_timestamp
 
 
 class SettlementValidationError(ValueError):
@@ -214,4 +215,4 @@ def _settlement_price(row: Mapping[str, Any], winning_side: str) -> float:
 def _parse_timestamp(value: str) -> datetime:
     if not value:
         raise SettlementValidationError("settled_at is required")
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parse_timestamp(value)

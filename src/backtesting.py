@@ -10,6 +10,8 @@ from pathlib import Path
 from statistics import mean, pstdev
 from typing import Any, Dict, Iterable, List
 
+from src.utils import parse_timestamp
+
 
 def _json_safe_float(value: float) -> float | None:
     if math.isfinite(value):
@@ -324,7 +326,4 @@ def load_trades_csv(path: str | Path) -> List[BacktestTradeInput]:
 
 
 def _parse_timestamp(value: str) -> datetime:
-    clean = value.strip()
-    if clean.endswith("Z"):
-        clean = f"{clean[:-1]}+00:00"
-    return datetime.fromisoformat(clean)
+    return parse_timestamp(value)

@@ -1,6 +1,7 @@
 # marketedge/src/weather/data.py
 """Weather data fetching and model probability estimation."""
 
+import logging
 from datetime import datetime
 from typing import Dict, Any, List
 from dataclasses import dataclass
@@ -9,6 +10,9 @@ import httpx
 import numpy as np
 
 from src.config import weather_config
+from src.utils import utcnow
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -182,7 +186,7 @@ class WeatherModelEngine:
             lat=lat,
             lon=lon,
             event_type=event_type,
-            forecast_cycle=datetime.utcnow(),
+            forecast_cycle=utcnow(),
             threshold=threshold,
         )
 
@@ -192,7 +196,7 @@ class WeatherModelEngine:
                 forecast.ecmwf_prob = np.mean(nws_data["probabilities"])
                 forecast.sources.append("NWS")
         except Exception as e:
-            print(f"[Weather] NWS fetch failed: {e}")
+            logger.warning("NWS fetch failed: %s", e)
 
         try:
             om_data = await self.openmeteo.get_ensemble_forecast(lat, lon)
@@ -234,7 +238,7 @@ class WeatherModelEngine:
                     forecast.sources.append("OpenMeteo-ICON")
 
         except Exception as e:
-            print(f"[Weather] OpenMeteo fetch failed: {e}")
+            logger.warning("OpenMeteo fetch failed: %s", e)
 
         forecast.analog_prob = self._analog_estimate(event_type, lat, lon, threshold)
         forecast.sources.append("Analog-Historical")

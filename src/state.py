@@ -4,7 +4,7 @@
 import asyncio
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta, timezone
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -19,6 +19,9 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from sqlalchemy.types import TypeDecorator
+
+from src.utils import utcnow
 
 Base = declarative_base()
 
@@ -26,6 +29,35 @@ SCHEMA_VERSION = "0001_state_and_audit"
 SCHEMA_DESCRIPTION = (
     "Create state tables, schema migration ledger, and audit event log."
 )
+
+
+class UTCDateTime(TypeDecorator):
+    """A ``DateTime`` that stores naive-UTC but always reads back UTC-aware.
+
+    SQLite has no native timezone support, so the stock SQLAlchemy ``DateTime``
+    silently drops tzinfo on write and returns naive datetimes on read. That
+    makes it unsafe to compare stored values against a timezone-aware "now".
+    This decorator normalizes both directions: incoming values are converted to
+    UTC and stored without tzinfo (matching pre-existing rows), and outgoing
+    values are re-tagged as UTC so all in-memory datetimes are aware.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 class PositionStatus(str, Enum):
@@ -65,17 +97,17 @@ class Position(Base):
     # Weather specifics
     weather_event_type = Column(String(50))  # rain, temp, wind, snow
     location = Column(String(100))
-    forecast_cycle = Column(DateTime)
-    resolution_date = Column(DateTime)
+    forecast_cycle = Column(UTCDateTime)
+    resolution_date = Column(UTCDateTime)
 
     # Risk
     correlated_group = Column(String(50), nullable=True)
     position_pct_of_bankroll = Column(Float)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    closed_at = Column(DateTime, nullable=True)
+    created_at = Column(UTCDateTime, default=utcnow)
+    updated_at = Column(UTCDateTime, default=utcnow, onupdate=utcnow)
+    closed_at = Column(UTCDateTime, nullable=True)
 
     # P&L
     realized_pnl = Column(Float, nullable=True)
@@ -95,7 +127,7 @@ class Trade(Base):
     side = Column(String(10))
     price = Column(Float)
     quantity = Column(Integer)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(UTCDateTime, default=utcnow)
 
     position = relationship("Position", back_populates="trades")
 
@@ -106,7 +138,7 @@ class WeatherForecast(Base):
     id = Column(Integer, primary_key=True)
     location = Column(String(100), index=True)
     event_type = Column(String(50))
-    forecast_cycle = Column(DateTime, index=True)
+    forecast_cycle = Column(UTCDateTime, index=True)
 
     # Raw model outputs
     ecmwf_prob = Column(Float)
@@ -122,9 +154,9 @@ class WeatherForecast(Base):
     # Market snapshot
     market_ticker = Column(String(50))
     market_price = Column(Float, nullable=True)
-    market_timestamp = Column(DateTime, nullable=True)
+    market_timestamp = Column(UTCDateTime, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(UTCDateTime, default=utcnow)
 
 
 class MarketSnapshot(Base):
@@ -141,7 +173,7 @@ class MarketSnapshot(Base):
     yes_bid = Column(Float)
     no_ask = Column(Float)
     no_bid = Column(Float)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(UTCDateTime, default=utcnow, index=True)
 
 
 class PortfolioState(Base):
@@ -156,7 +188,7 @@ class PortfolioState(Base):
     ytd_pnl = Column(Float, default=0.0)
     max_drawdown = Column(Float, default=0.0)
     peak_bankroll = Column(Float, default=10000.0)
-    updated_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(UTCDateTime, default=utcnow)
 
 
 class SchemaMigration(Base):
@@ -164,7 +196,7 @@ class SchemaMigration(Base):
 
     version = Column(String(64), primary_key=True)
     description = Column(String(255), nullable=False)
-    applied_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    applied_at = Column(UTCDateTime, default=utcnow, nullable=False)
 
 
 class AuditEvent(Base):
@@ -175,7 +207,7 @@ class AuditEvent(Base):
     subject = Column(String(120), nullable=False, index=True)
     ticker = Column(String(50), nullable=True, index=True)
     payload_json = Column(Text, nullable=False, default="{}")
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(UTCDateTime, default=utcnow, nullable=False, index=True)
 
 
 # ========== STATE MANAGER ==========
@@ -267,13 +299,13 @@ class StateManager:
     ):
         async with self._lock:
             with self.Session() as session:
-                pos = session.query(Position).get(position_id)
+                pos = session.get(Position, position_id)
                 if pos:
                     pos.status = "closed"
                     pos.exit_price = exit_price
                     pos.realized_pnl = pnl
                     pos.settlement_fee = fee
-                    pos.closed_at = datetime.utcnow()
+                    pos.closed_at = utcnow()
                     session.commit()
                     self._update_portfolio_state(session)
 
@@ -356,7 +388,7 @@ class StateManager:
         mtd_pnl = sum(
             p.realized_pnl or 0
             for p in closed_pos
-            if p.closed_at and p.closed_at > datetime.utcnow() - timedelta(days=30)
+            if p.closed_at and p.closed_at > utcnow() - timedelta(days=30)
         )
 
         portfolio = session.query(PortfolioState).first()
@@ -364,7 +396,7 @@ class StateManager:
         portfolio.total_exposure = total_exposure
         portfolio.open_positions_count = open_count
         portfolio.mtd_pnl = mtd_pnl
-        portfolio.updated_at = datetime.utcnow()
+        portfolio.updated_at = utcnow()
         session.commit()
 
     async def get_all_positions(self, limit: int = 100) -> List[Position]:
@@ -380,4 +412,4 @@ class StateManager:
     async def get_position(self, position_id: int) -> Optional[Position]:
         async with self._lock:
             with self.Session() as session:
-                return session.query(Position).get(position_id)
+                return session.get(Position, position_id)

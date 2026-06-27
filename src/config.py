@@ -59,6 +59,9 @@ class TradingConfig:
     initial_bankroll: float = 10000.0
     max_open_positions: int = 20
 
+    # Order lifecycle
+    order_ttl_seconds: int = 300
+
 
 @dataclass
 class WeatherConfig:

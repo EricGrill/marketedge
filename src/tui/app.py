@@ -2,7 +2,7 @@
 """Textual TUI for Market Edge."""
 
 import asyncio
-from datetime import datetime
+import logging
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, Grid
@@ -24,6 +24,9 @@ from textual.binding import Binding
 from src.state import StateManager
 from src.formulas import QuantEngine
 from src.config import trading_config
+from src.utils import utcnow
+
+logger = logging.getLogger(__name__)
 
 
 class PortfolioWidget(Static):
@@ -95,7 +98,7 @@ class PositionsTable(Static):
 
         positions = await state_manager.get_open_positions()
         for pos in positions:
-            age = (datetime.utcnow() - pos.created_at).days
+            age = (utcnow() - pos.created_at).days
             table.add_row(
                 pos.ticker,
                 pos.side.upper(),
@@ -304,8 +307,8 @@ class KalshiQuantApp(App):
             try:
                 await self._refresh_dashboard()
                 await asyncio.sleep(5)
-            except Exception as e:
-                print(f"[TUI] Refresh error: {e}")
+            except Exception:
+                logger.exception("Refresh error")
                 await asyncio.sleep(5)
 
     async def _refresh_dashboard(self):
@@ -345,7 +348,7 @@ class KalshiQuantApp(App):
 
     def add_signal(self, signal: dict):
         """Add a trade signal to history."""
-        signal["time"] = datetime.utcnow().strftime("%H:%M:%S")
+        signal["time"] = utcnow().strftime("%H:%M:%S")
         self._signals_history.append(signal)
         signals_widget = self.query_one("#signals", SignalsTable)
         signals_widget.signals = self._signals_history

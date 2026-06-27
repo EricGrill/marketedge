@@ -29,6 +29,7 @@ from src.paper import PaperLedgerError, PaperTradingLedger
 from src.api.client import KalshiRestClient
 from src.strategies.weather import WeatherTradingStrategy
 from src.tui.app import KalshiQuantApp
+from src.logging_config import configure_logging
 
 console = Console()
 
@@ -38,6 +39,7 @@ console = Console()
 @click.pass_context
 def cli(ctx, env):
     """Market Edge research and dry-run trading CLI."""
+    configure_logging()
     if os.path.exists(env):
         from dotenv import load_dotenv
 
@@ -169,9 +171,11 @@ def analyze(ctx, ticker, model_prob, side):
     market_bid = 25.0
     market_ask = 30.0
 
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
-    resolution_date = datetime.utcnow() + timedelta(days=7)
+    from src.utils import utcnow
+
+    resolution_date = utcnow() + timedelta(days=7)
 
     portfolio = asyncio.run(state.get_portfolio_state())
     bankroll = portfolio.bankroll if portfolio else trading_config.initial_bankroll

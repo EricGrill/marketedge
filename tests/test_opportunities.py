@@ -1,6 +1,7 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from src.opportunities import OpportunityCandidate, OpportunityScanner
+from src.utils import utcnow
 
 
 def test_opportunity_scanner_ranks_clear_buy_yes_first():
@@ -12,7 +13,7 @@ def test_opportunity_scanner_ranks_clear_buy_yes_first():
         yes_ask=40,
         confidence=0.9,
         volume=100_000,
-        resolution_date=datetime.utcnow() + timedelta(days=7),
+        resolution_date=utcnow() + timedelta(days=7),
     )
 
     results = OpportunityScanner().rank([candidate], bankroll=1_000)
@@ -30,7 +31,7 @@ def test_opportunity_scanner_surfaces_low_confidence_and_wide_spread():
         yes_bid=20,
         yes_ask=70,
         confidence=0.3,
-        resolution_date=datetime.utcnow() + timedelta(days=7),
+        resolution_date=utcnow() + timedelta(days=7),
     )
 
     results = OpportunityScanner().rank([candidate], bankroll=1_000)

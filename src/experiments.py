@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 from uuid import uuid4
+
+from src.utils import parse_timestamp, utcnow
 
 COMPARISON_METRICS = (
     "total_trades",
@@ -39,7 +41,7 @@ class ExperimentRecord:
     git_commit: str
     model_version: str = ""
     status: str = "created"
-    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: datetime = field(default_factory=utcnow)
     finished_at: datetime | None = None
     notes: str = ""
 
@@ -143,7 +145,7 @@ class ExperimentRegistry:
         updated = replace(
             record,
             artifact_paths=[*record.artifact_paths, artifact_path],
-            finished_at=datetime.now(timezone.utc),
+            finished_at=utcnow(),
             status="artifact-linked",
         )
         self.append(updated)
@@ -258,4 +260,4 @@ def _default_run_id(strategy_name: str) -> str:
 
 
 def _parse_datetime(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parse_timestamp(value)

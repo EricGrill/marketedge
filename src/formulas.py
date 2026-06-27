@@ -6,6 +6,7 @@ from typing import Optional, Tuple, List
 from datetime import datetime
 
 from src.config import trading_config, weather_config
+from src.utils import ensure_utc, utcnow
 
 
 @dataclass
@@ -213,9 +214,9 @@ class QuantEngine:
         IY = (1 / price)^(365 / days) - 1
         """
         if current_date is None:
-            current_date = datetime.utcnow()
+            current_date = utcnow()
 
-        days_to_res = (resolution_date - current_date).days
+        days_to_res = (ensure_utc(resolution_date) - ensure_utc(current_date)).days
         if days_to_res <= 0:
             days_to_res = 0.1  # Avoid division by zero
 

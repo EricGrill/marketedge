@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
 from src.formulas import QuantEngine
+from src.utils import utcnow
 
 
 def test_las_marks_wide_spread_as_unliquid_and_skips_size():
@@ -40,7 +41,7 @@ def test_screen_opportunity_handles_zero_recommended_size():
         model_prob=0.90,
         market_bid=30,
         market_ask=70,
-        resolution_date=datetime.utcnow() + timedelta(days=7),
+        resolution_date=utcnow() + timedelta(days=7),
         bankroll=10_000,
     )
 

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List
 from uuid import uuid4
+
+from src.utils import parse_timestamp, utcnow
 
 
 class PaperLedgerError(ValueError):
@@ -272,8 +274,8 @@ def _event_id(prefix: str) -> str:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return utcnow()
 
 
 def _parse_timestamp(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parse_timestamp(value)

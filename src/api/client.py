@@ -6,7 +6,7 @@ import hmac
 import hashlib
 import base64
 import asyncio
-from datetime import datetime, timezone
+import logging
 from typing import Optional, Dict, Any, List, Callable
 from dataclasses import dataclass
 
@@ -15,6 +15,9 @@ import websockets
 from websockets.exceptions import ConnectionClosed
 
 from src.config import kalshi_config
+from src.utils import utcnow
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -31,7 +34,7 @@ class KalshiAuth:
 
     def generate_signature(self, method: str, path: str, body: str = "") -> str:
         """Generate HMAC signature for request."""
-        timestamp = str(int(datetime.now(timezone.utc).timestamp()))
+        timestamp = str(int(utcnow().timestamp()))
         msg_string = timestamp + method.upper() + path + body
 
         signature = hmac.new(
@@ -253,13 +256,13 @@ class KalshiWebSocketClient:
             )
             self.connected = True
             self._running = True
-            print(f"[WS] Connected to {self.config.ws_url}")
+            logger.info("Connected to %s", self.config.ws_url)
 
             # Start message handler loop
             asyncio.create_task(self._message_loop())
             return True
-        except Exception as e:
-            print(f"[WS] Connection failed: {e}")
+        except Exception:
+            logger.exception("Connection failed")
             return False
 
     async def _message_loop(self):
@@ -276,15 +279,15 @@ class KalshiWebSocketClient:
                             asyncio.create_task(handler(data))
                         else:
                             handler(data)
-                    except Exception as e:
-                        print(f"[WS] Handler error: {e}")
+                    except Exception:
+                        logger.exception("Handler error")
 
             except ConnectionClosed:
-                print("[WS] Connection closed")
+                logger.info("Connection closed")
                 self.connected = False
                 break
-            except Exception as e:
-                print(f"[WS] Error: {e}")
+            except Exception:
+                logger.exception("Message loop error")
 
     async def subscribe_orderbook(self, ticker: str):
         """Subscribe to orderbook updates."""
@@ -294,7 +297,7 @@ class KalshiWebSocketClient:
         msg = {"type": "subscribe", "channel": "orderbook", "market_ticker": ticker}
         await self.ws.send(json.dumps(msg))
         self.subscriptions.add(f"orderbook:{ticker}")
-        print(f"[WS] Subscribed to orderbook: {ticker}")
+        logger.info("Subscribed to orderbook: %s", ticker)
 
     async def subscribe_trades(self, ticker: str):
         """Subscribe to trade updates."""
@@ -304,7 +307,7 @@ class KalshiWebSocketClient:
         msg = {"type": "subscribe", "channel": "trades", "market_ticker": ticker}
         await self.ws.send(json.dumps(msg))
         self.subscriptions.add(f"trades:{ticker}")
-        print(f"[WS] Subscribed to trades: {ticker}")
+        logger.info("Subscribed to trades: %s", ticker)
 
     async def subscribe_ticker(self, ticker: str):
         """Subscribe to ticker updates."""
@@ -314,7 +317,7 @@ class KalshiWebSocketClient:
         msg = {"type": "subscribe", "channel": "ticker", "market_ticker": ticker}
         await self.ws.send(json.dumps(msg))
         self.subscriptions.add(f"ticker:{ticker}")
-        print(f"[WS] Subscribed to ticker: {ticker}")
+        logger.info("Subscribed to ticker: %s", ticker)
 
     def add_handler(self, handler: Callable):
         """Add message handler."""
@@ -327,7 +330,7 @@ class KalshiWebSocketClient:
             await self.ws.close()
             self.ws = None
         self.connected = False
-        print("[WS] Disconnected")
+        logger.info("Disconnected")
 
 
 # Weather-specific market scanner
@@ -399,5 +402,5 @@ class WeatherMarketScanner:
         return {
             "market": market,
             "orderbook": orderbook,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utcnow().isoformat(),
         }
