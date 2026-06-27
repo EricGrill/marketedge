@@ -30,6 +30,11 @@ from src.api.client import KalshiRestClient
 from src.strategies.weather import WeatherTradingStrategy
 from src.tui.app import KalshiQuantApp
 from src.logging_config import configure_logging
+from src.safety import (
+    ALLOW_LIVE_ENV,
+    KILL_SWITCH_ENV,
+    evaluate_live_trading_gate,
+)
 
 console = Console()
 
@@ -229,15 +234,38 @@ def analyze(ctx, ticker, model_prob, side):
 
 
 @cli.command()
-@click.option("--live/--dry", default=False, help="Live trading or dry run")
+@click.option(
+    "--live/--dry",
+    default=False,
+    help="Live trading or dry run (dry run is the default and is always safe)",
+)
 @click.option("--interval", default=300, help="Scan interval in seconds")
+@click.option(
+    "--confirm-live",
+    is_flag=True,
+    default=False,
+    help="Operator confirmation required to place real orders in live mode",
+)
 @click.pass_context
-def trade(ctx, live, interval):
-    """Run the weather trading strategy."""
+def trade(ctx, live, interval, confirm_live):
+    """Run the weather trading strategy.
+
+    Defaults to a dry run that never places real orders. Live mode fails closed:
+    it runs only when the global kill switch is disengaged, MARKETEDGE_ALLOW_LIVE
+    is set, both Kalshi credentials are present, and --confirm-live is passed.
+    """
     state = ctx.obj["state"]
 
-    if live and not kalshi_config.api_key:
-        console.print("[red]Error: KALSHI_API_KEY required for live trading[/red]")
+    decision = evaluate_live_trading_gate(
+        live=live,
+        api_key=kalshi_config.api_key,
+        api_secret=kalshi_config.api_secret,
+        confirmed=confirm_live,
+        allow_live_env=os.getenv(ALLOW_LIVE_ENV),
+        kill_switch_env=os.getenv(KILL_SWITCH_ENV),
+    )
+    if not decision.allowed:
+        console.print(f"[red]Live trading blocked: {decision.reason}[/red]")
         sys.exit(1)
 
     client = KalshiRestClient()
