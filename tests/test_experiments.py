@@ -2,11 +2,25 @@ import json
 
 import pytest
 
+from src import experiments as experiments_module
 from src.experiments import (
     ExperimentRegistry,
     ExperimentRegistryError,
+    detect_git_commit,
     parse_key_value_pairs,
 )
+
+
+def test_detect_git_commit_returns_head_in_a_repo():
+    sha = detect_git_commit()
+    # Running inside this repository, HEAD resolves to a 40-char hex sha.
+    assert len(sha) == 40
+    assert all(c in "0123456789abcdef" for c in sha)
+
+
+def test_detect_git_commit_degrades_when_git_missing(monkeypatch):
+    monkeypatch.setattr(experiments_module.shutil, "which", lambda _: None)
+    assert detect_git_commit() == ""
 
 
 def test_experiment_registry_creates_lists_and_loads_runs(tmp_path):

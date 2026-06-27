@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
-import subprocess
+import shutil
+
+# Only used to read the local git HEAD via a fixed argv (see detect_git_commit).
+import subprocess  # nosec B404
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -180,10 +183,21 @@ class ExperimentRegistry:
 
 
 def detect_git_commit(cwd: str | Path = ".") -> str:
-    """Return the current git commit, or an empty string outside git."""
+    """Return the current git commit, or an empty string outside git.
+
+    The git executable is resolved to an absolute path up front so we never rely
+    on a partial-path lookup, and the argument list is fixed (no shell, no user
+    input), so this records provenance metadata without a command-injection
+    surface. When git is unavailable the function degrades cleanly to "".
+    """
+    git_executable = shutil.which("git")
+    if git_executable is None:
+        return ""
+    argv = [git_executable, "rev-parse", "HEAD"]
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+        # Fixed argv, resolved absolute path, no shell: no command-injection surface.
+        result = subprocess.run(  # nosec B603
+            argv,
             cwd=Path(cwd),
             check=True,
             capture_output=True,
