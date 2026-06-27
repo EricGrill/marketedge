@@ -1,0 +1,62 @@
+# Pinned dependency versions for reproducible installs.
+#
+# requirements.txt declares the direct dependencies with lower bounds; this file
+# pins the full resolved dependency tree (direct + transitive) so a fresh clone
+# installs identical versions. Install with:
+#
+#     pip install -r requirements.txt -c constraints.txt
+#
+# To refresh after changing requirements.txt, recreate a clean virtualenv,
+# install requirements.txt, run the verification gate, then regenerate:
+#
+#     python -m pip freeze | grep -viE '^-e |marketedge' > constraints.txt
+#
+# Generated against Python 3.12.
+alembic==1.18.4
+annotated-types==0.7.0
+anyio==4.14.0
+black==26.5.1
+certifi==2026.6.17
+charset-normalizer==3.4.7
+click==8.4.1
+flake8==7.3.0
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.18
+iniconfig==2.3.0
+linkify-it-py==2.1.0
+Mako==1.3.12
+markdown-it-py==4.2.0
+MarkupSafe==3.0.3
+mccabe==0.7.0
+mdit-py-plugins==0.6.1
+mdurl==0.1.2
+mypy_extensions==1.1.0
+numpy==2.4.6
+packaging==26.2
+pandas==3.0.3
+pathspec==1.1.1
+platformdirs==4.10.0
+pluggy==1.6.0
+pycodestyle==2.14.0
+pydantic==2.13.4
+pydantic_core==2.46.4
+pyflakes==3.4.0
+Pygments==2.20.0
+pytest==9.1.0
+pytest-asyncio==1.4.0
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+pytokens==0.4.1
+requests==2.34.2
+rich==15.0.0
+scipy==1.17.1
+six==1.17.0
+SQLAlchemy==2.0.51
+textual==8.2.7
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+uc-micro-py==2.0.0
+urllib3==2.7.0
+websockets==16.0
