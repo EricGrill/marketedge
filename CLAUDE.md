@@ -4,8 +4,8 @@ Project guidance for Claude and other coding agents working in this repository.
 
 ## Project
 
-Market Edge is a private, experimental prediction-market quant research and
-dry-run execution workbench. The current implementation starts with Kalshi
+Market Edge is an experimental, research-first prediction-market quant research
+and dry-run execution workbench. The current implementation starts with Kalshi
 weather markets and local/offline workflows. Do not describe it as production
 live-trading software.
 
@@ -23,10 +23,14 @@ tooling in `.venv/bin/`.
 ## Safety
 
 - Keep default workflows dry-run, no-account, and local-first.
-- Do not add live-trading behavior without explicit safety gates, risk checks,
-  operator confirmation, and audit-trail integration.
+- Live trading fails closed in `src/safety.py`: it requires a disengaged kill
+  switch, `MARKETEDGE_ALLOW_LIVE=true`, both Kalshi credentials, and
+  `--confirm-live`. Do not weaken these gates.
+- Do not add further live-trading behavior without risk checks, operator
+  confirmation, and audit-trail integration.
 - Do not commit `.env`, API credentials, local databases, JSONL ledgers, logs,
-  or generated dashboard payloads.
+  or generated dashboard payloads. Before publishing, run
+  `./scripts/pre_public_audit.sh` (see `docs/pre-public-checklist.md`).
 
 ## Common Commands
 

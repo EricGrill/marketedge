@@ -1,7 +1,7 @@
 # Market Edge
 
-Market Edge is a private prediction-market quant research and dry-run execution
-workbench. It helps evaluate model-vs-market mispricings, ranked opportunities,
+Market Edge is an experimental prediction-market quant research and dry-run
+execution workbench. It helps evaluate model-vs-market mispricings, ranked opportunities,
 paper trades, backtests, calibration quality, and local operator readiness.
 
 The current implementation starts with Kalshi weather markets. The code is
@@ -20,9 +20,10 @@ operator confirmations are fully merged and verified.
 ## Repository And Docs
 
 - GitHub: [EricGrill/marketedge](https://github.com/EricGrill/marketedge)
-- Canonical local path: `/Users/eric/code/marketedge`
-- Legacy compatibility path: `/Users/eric/code/kalshi_weather_quant`
 - Primary branch: `main`
+- License: [MIT](LICENSE)
+- Security policy: [SECURITY.md](SECURITY.md)
+- Contributor guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Agent handoff file: `CLAUDE.md`
 - Main user/operator documentation: `README.md`
 
@@ -115,8 +116,12 @@ marketedge/
 │   ├── execution.py       # Fill/slippage/queue execution modeling
 │   ├── experiments.py     # Local experiment registry and comparison
 │   ├── formulas.py        # Quant engine and screening math
+│   ├── orders.py          # Append-only order lifecycle ledger
+│   ├── safety.py          # Live-trading safety gate (fails closed)
 │   ├── settlements.py     # Offline settlement outcome resolver
 │   ├── state.py           # SQLite state manager and SQLAlchemy models
+│   ├── logging_config.py  # Central logging configuration
+│   ├── utils.py           # Shared UTC datetime/timestamp helpers
 │   ├── api/client.py      # Kalshi REST/WebSocket client and weather scanner
 │   ├── strategies/weather.py
 │   ├── tui/app.py         # Textual dashboard
@@ -131,20 +136,21 @@ marketedge/
 
 ## Quickstart
 
-Clone the private repository:
+Clone the repository:
 
 ```bash
 git clone https://github.com/EricGrill/marketedge.git
 cd marketedge
 ```
 
-Create a Python environment and install dependencies:
+Create a Python environment and install dependencies. The `constraints.txt`
+lock pins the full resolved dependency tree for reproducible installs:
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 ```
 
 Create local configuration when using API-backed commands:
@@ -401,9 +407,13 @@ Local readiness controls already include remote CI, operator diagnostics,
 configurable SQLite storage, Alembic schema initialization, an application
 schema ledger, and an audit event table with CLI inspection/append commands.
 
-Relevant Linear tracking includes `CHA-1040` through `CHA-1044` for production
-readiness and later enhancement issues for dashboard data, opportunity ranking,
-paper ledger, doctor checks, and experiment comparison.
+The live-trading path fails closed by default. Running `trade --live` requires
+the global kill switch disengaged, `MARKETEDGE_ALLOW_LIVE=true`, both Kalshi
+credentials present, and an explicit `--confirm-live` confirmation; any missing
+gate exits before a live client is created. Dry run is always the default.
+
+Planned production-readiness and research enhancements are tracked publicly on
+the [GitHub issues](https://github.com/EricGrill/marketedge/issues) board.
 
 ## Verification
 
@@ -427,37 +437,57 @@ SQLAlchemy legacy APIs. Warnings are not currently fatal.
 
 ## Development Workflow
 
-Use a branch per Linear issue or a clearly named batch branch:
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor guide. In short,
+use a clearly named feature branch off `main`:
 
 ```bash
 git checkout main
 git pull
-git checkout -b codex/cha-1045-production-readme
+git checkout -b feature/short-description
 ```
 
-Before opening a PR, run the verification gate and include:
+Before opening a pull request, run the verification gate and include:
 
-- The Linear issue identifier(s).
 - A concise explanation of the change.
 - Verification commands and results.
-- Known gaps or follow-up issues.
+- Known gaps or follow-up work.
 
-Commits should follow the repository's lore commit protocol when creating new
-commits.
+The pull request template includes a no-secrets / no-generated-data checklist —
+please complete it.
+
+### Refresh And Audit Dependencies
+
+Direct dependencies live in `requirements.txt`; `constraints.txt` pins the full
+resolved tree. To refresh after changing a dependency, recreate a clean
+environment, reinstall, run the gate, then regenerate the lock:
+
+```bash
+python -m pip freeze | grep -viE '^-e |marketedge' > constraints.txt
+```
+
+Audit installed dependencies for known vulnerabilities (also run weekly in CI):
+
+```bash
+uvx pip-audit --strict
+```
+
+## License
+
+Market Edge is released under the [MIT License](LICENSE).
 
 ## Security And Open-Source Readiness
 
 Do not commit real API keys or trading credentials. Use `.env` for local
-secrets.
+secrets; it is git-ignored.
 
-This repository is currently private. Before making it public:
+To report a vulnerability, follow the [security policy](SECURITY.md) and use a
+private channel — do not open a public issue.
 
-- Select and add a license.
-- Add a security policy and vulnerability disclosure path.
-- Confirm no secrets or private operational details are committed.
-- Restore CI.
-- Decide whether Linear links should remain in public documentation or move to a
-  public roadmap.
+Before publishing or re-publishing, run the
+[pre-public release checklist](docs/pre-public-checklist.md), which verifies
+that no secrets, databases, ledgers, `.omx/` state, or generated dashboard
+payloads are tracked or present in git history. A scripted version is available:
 
-No license has been selected yet. Do not assume open-source rights until a
-license file is added.
+```bash
+./scripts/pre_public_audit.sh
+```
