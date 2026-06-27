@@ -72,9 +72,29 @@ It is read-only and exits non-zero if it finds a likely exposure.
 - [ ] `uvx pip-audit --strict` reports no known vulnerabilities.
 - [ ] `uvx bandit -r src` reports no issues (only justified `# nosec` lines).
 
-## 7. GitHub settings (before flipping visibility)
+## 7. GitHub settings
 
-- [ ] Branch protection on `main` with the CI checks required.
-- [ ] Secret scanning and push protection enabled.
-- [ ] Repository description and topics set; Wiki state intentional.
-- [ ] Only flip to public once every box above is checked.
+Configured while still private:
+
+- [x] Branch protection on `main` requiring the CI checks (`Python 3.10`,
+      `Python 3.11`, `Python 3.12`), with force-pushes and deletions blocked.
+- [x] Repository description and topics set; Wiki disabled.
+- [x] Dependabot version/security updates enabled (`.github/dependabot.yml`).
+
+Must be done immediately after flipping to public (these are free for public
+repos but unavailable while the repo is private):
+
+- [ ] Enable **secret scanning** and **push protection**
+      (Settings → Code security, or
+      `gh api -X PATCH repos/EricGrill/marketedge -f 'security_and_analysis[secret_scanning][status]=enabled' -f 'security_and_analysis[secret_scanning_push_protection][status]=enabled'`).
+
+## 8. Flip to public
+
+Only after every box above is checked:
+
+```bash
+gh repo edit EricGrill/marketedge --visibility public --accept-visibility-change-consequences
+```
+
+Then enable secret scanning/push protection (section 7) and confirm GitHub
+detects the MIT license on the repository home page.
