@@ -34,6 +34,11 @@ dev = [
     "flake8>=7.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/EricGrill/marketedge"
+Repository = "https://github.com/EricGrill/marketedge"
+Issues = "https://github.com/EricGrill/marketedge/issues"
+
 [project.scripts]
 marketedge = "src.cli:cli"
 

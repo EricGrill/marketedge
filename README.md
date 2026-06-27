@@ -37,7 +37,7 @@ The current implementation focuses on **Kalshi weather markets**. The math, stat
 
 ## 📦 Install
 
-Pick the one-shot path that matches your setup. No Python knowledge required for the first two.
+Pick the one-shot path that matches your setup. No Python knowledge required for Homebrew or Docker.
 
 ### Option 1 — Homebrew (macOS)
 
@@ -63,7 +63,15 @@ docker compose run --rm marketedge doctor
 docker compose run --rm marketedge --help
 ```
 
-### Option 3 — Python 3.12
+### Option 3 — uvx (any OS with Python/uv)
+
+```bash
+uvx --from git+https://github.com/EricGrill/marketedge.git marketedge --help
+```
+
+`uvx` downloads, builds, and runs the CLI in one shot without leaving a global install behind. Re-run the same command to get the latest `main`.
+
+### Option 4 — Python 3.12
 
 ```bash
 git clone https://github.com/EricGrill/marketedge.git
@@ -93,7 +101,7 @@ pip install -r requirements.txt -c constraints.txt
 
 ## 🚀 Quick Start
 
-After installing via [Homebrew](#option-1--homebrew-macos), [Docker](#option-2--docker-compose), or [Python](#option-3--python-312):
+After installing via [Homebrew](#option-1--homebrew-macos), [Docker](#option-2--docker-compose), [uvx](#option-3--uvx-any-os-with-pythonuv), or [Python](#option-4--python-312):
 
 No API key is needed for local workflows. To use API-backed commands, copy the config template:
 
