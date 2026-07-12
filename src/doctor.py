@@ -18,7 +18,8 @@ REQUIRED_MODULES = (
     "textual",
     "websockets",
 )
-MIN_PYTHON_VERSION = (3, 10)
+# Keep in sync with `requires-python` in pyproject.toml and the README badge.
+MIN_PYTHON_VERSION = (3, 12)
 
 
 @dataclass(frozen=True)
