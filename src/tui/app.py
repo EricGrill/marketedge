@@ -32,25 +32,28 @@ logger = logging.getLogger(__name__)
 class PortfolioWidget(Static):
     """Display portfolio summary."""
 
-    bankroll = reactive(10000.0)
-    available = reactive(10000.0)
-    exposure = reactive(0.0)
-    open_count = reactive(0)
-    mtd_pnl = reactive(0.0)
+    # init=False: these watchers query child Labels that do not exist until the
+    # Grid below is mounted. Firing them during compose/mount raises NoMatches,
+    # so we suppress the initialization call and let refresh_data drive updates.
+    bankroll = reactive(10000.0, init=False)
+    available = reactive(10000.0, init=False)
+    exposure = reactive(0.0, init=False)
+    open_count = reactive(0, init=False)
+    mtd_pnl = reactive(0.0, init=False)
 
     def compose(self) -> ComposeResult:
         yield Label("[b]PORTFOLIO[/b]", classes="title")
         yield Grid(
             Label("Bankroll:", classes="label"),
-            Label(self.bankroll, id="bankroll-val", classes="value"),
+            Label(f"${self.bankroll:,.2f}", id="bankroll-val", classes="value"),
             Label("Available:", classes="label"),
-            Label(self.available, id="available-val", classes="value"),
+            Label(f"${self.available:,.2f}", id="available-val", classes="value"),
             Label("Exposure:", classes="label"),
-            Label(self.exposure, id="exposure-val", classes="value"),
+            Label(f"${self.exposure:,.2f}", id="exposure-val", classes="value"),
             Label("Open Pos:", classes="label"),
-            Label(self.open_count, id="open-count-val", classes="value"),
+            Label(str(self.open_count), id="open-count-val", classes="value"),
             Label("MTD P&L:", classes="label"),
-            Label(self.mtd_pnl, id="mtd-pnl-val", classes="value"),
+            Label(f"${self.mtd_pnl:,.2f}", id="mtd-pnl-val", classes="value"),
             classes="portfolio-grid",
         )
 
@@ -114,7 +117,7 @@ class PositionsTable(Static):
 class SignalsTable(Static):
     """Display recent trade signals."""
 
-    signals = reactive([])
+    signals = reactive([], init=False)
 
     def compose(self) -> ComposeResult:
         yield Label("[b]RECENT SIGNALS[/b]", classes="title")
@@ -170,19 +173,20 @@ class MarketScannerWidget(Static):
 class RiskWidget(Static):
     """Risk metrics display."""
 
-    ror = reactive(0.0)
-    max_dd = reactive(0.0)
-    var95 = reactive(0.0)
+    # init=False: see PortfolioWidget — watchers query child Labels mounted below.
+    ror = reactive(0.0, init=False)
+    max_dd = reactive(0.0, init=False)
+    var95 = reactive(0.0, init=False)
 
     def compose(self) -> ComposeResult:
         yield Label("[b]RISK METRICS[/b]", classes="title")
         yield Grid(
             Label("RoR:", classes="label"),
-            Label(self.ror, id="ror-val", classes="value"),
+            Label(f"{self.ror:.2%}", id="ror-val", classes="value"),
             Label("Max DD:", classes="label"),
-            Label(self.max_dd, id="max-dd-val", classes="value"),
+            Label(f"{self.max_dd:.2%}", id="max-dd-val", classes="value"),
             Label("VaR 95%:", classes="label"),
-            Label(self.var95, id="var-val", classes="value"),
+            Label(f"${self.var95:,.2f}", id="var-val", classes="value"),
             classes="risk-grid",
         )
 
@@ -299,9 +303,12 @@ class KalshiQuantApp(App):
 
     async def on_mount(self):
         """Start background refresh."""
-        self._refresh_task = asyncio.create_task(self._auto_refresh())
+        # NB: do not name this loop `_auto_refresh` — Textual's DOMNode reserves
+        # `self._auto_refresh` as an instance attribute (the auto_refresh interval),
+        # which would shadow the method and make `self._auto_refresh()` call None.
+        self._refresh_task = asyncio.create_task(self._auto_refresh_loop())
 
-    async def _auto_refresh(self):
+    async def _auto_refresh_loop(self):
         """Auto-refresh dashboard every 5 seconds."""
         while True:
             try:

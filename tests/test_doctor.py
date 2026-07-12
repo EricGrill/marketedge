@@ -41,18 +41,18 @@ def test_health_checks_fail_for_missing_dependency(tmp_path):
 
 
 def test_python_health_check_accepts_ci_support_floor(monkeypatch):
-    monkeypatch.setattr(doctor.sys, "version_info", SimpleNamespace(major=3, minor=10))
+    monkeypatch.setattr(doctor.sys, "version_info", SimpleNamespace(major=3, minor=12))
 
     check = doctor._check_python()
 
     assert check.status == "ok"
-    assert check.message == "Python 3.10 is supported."
+    assert check.message == "Python 3.12 is supported."
 
 
 def test_python_health_check_rejects_versions_below_ci_floor(monkeypatch):
-    monkeypatch.setattr(doctor.sys, "version_info", SimpleNamespace(major=3, minor=9))
+    monkeypatch.setattr(doctor.sys, "version_info", SimpleNamespace(major=3, minor=11))
 
     check = doctor._check_python()
 
     assert check.status == "fail"
-    assert check.remediation == "Use Python 3.10 or newer."
+    assert check.remediation == "Use Python 3.12 or newer."

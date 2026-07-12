@@ -8,6 +8,10 @@ from datetime import datetime
 from src.config import trading_config, weather_config
 from src.utils import ensure_utc, utcnow
 
+# Ceiling for annualized yield (as a fraction; 100.0 == 10,000%). Short-horizon
+# returns annualize into absurd or overflowing values, so cap the reported figure.
+MAX_ANNUALIZED_YIELD = 100.0
+
 
 @dataclass
 class EdgeAnalysis:
@@ -224,7 +228,16 @@ class QuantEngine:
         if price <= 0:
             price = 0.01
 
-        annualized_yield = (1.0 / price) ** (365.0 / days_to_res) - 1.0
+        # Annualizing a large short-horizon return compounds explosively: a cheap
+        # contract resolving in days yields an astronomically (or infinitely)
+        # large raw figure that is meaningless to display and can overflow. Cap it
+        # at a sane ceiling; anything past the ceiling is "effectively unbounded"
+        # and still clears every yield threshold.
+        try:
+            annualized_yield = (1.0 / price) ** (365.0 / days_to_res) - 1.0
+        except OverflowError:
+            annualized_yield = MAX_ANNUALIZED_YIELD
+        annualized_yield = min(annualized_yield, MAX_ANNUALIZED_YIELD)
 
         return IYResult(
             entry_price=entry_price,

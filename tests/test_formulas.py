@@ -2,8 +2,22 @@ from datetime import timedelta
 
 import pytest
 
-from src.formulas import QuantEngine
+from src.formulas import MAX_ANNUALIZED_YIELD, QuantEngine
 from src.utils import utcnow
+
+
+def test_iy_caps_extreme_annualized_yield():
+    # A cheap contract (30c) resolving in a week annualizes to an astronomically
+    # large figure (regression: it once printed 1.8e29 %). It must be capped, not
+    # overflow, while still clearing the yield threshold.
+    engine = QuantEngine()
+
+    result = engine.calculate_iy(
+        entry_price=30.0, resolution_date=utcnow() + timedelta(days=7)
+    )
+
+    assert result.annualized_yield == MAX_ANNUALIZED_YIELD
+    assert result.is_above_threshold is True
 
 
 def test_las_marks_wide_spread_as_unliquid_and_skips_size():

@@ -130,15 +130,23 @@ class OpenMeteoClient:
         self, lat: float, lon: float, days: int = 14, variables: List[str] = None
     ) -> Dict:
         """Get ensemble forecast data."""
+        # The /forecast `daily` field only accepts daily-aggregation variable
+        # names (e.g. temperature_2m_max), not instantaneous names like
+        # temperature_2m; the latter returns HTTP 400. We also let Open-Meteo pick
+        # its best-match model rather than passing an explicit `models` list, which
+        # both avoids stale/invalid model IDs and keeps response keys unsuffixed.
         if variables is None:
-            variables = ["temperature_2m", "precipitation_probability", "windspeed_10m"]
+            variables = [
+                "temperature_2m_max",
+                "precipitation_probability_max",
+                "windspeed_10m_max",
+            ]
 
         params = {
             "latitude": lat,
             "longitude": lon,
             "daily": ",".join(variables),
             "forecast_days": days,
-            "models": "gfs_seamless,ecmwf_ifs04,icon_eu",
             "timezone": "auto",
         }
 
@@ -203,7 +211,7 @@ class WeatherModelEngine:
             daily = om_data.get("daily", {})
 
             if event_type in ["rain", "precipitation"]:
-                probs = daily.get("precipitation_probability", [])
+                probs = daily.get("precipitation_probability_max", [])
                 if probs:
                     forecast.gefs_prob = np.mean(
                         [p / 100 for p in probs if p is not None]
@@ -214,7 +222,7 @@ class WeatherModelEngine:
                     forecast.sources.append("OpenMeteo-GFS")
 
             elif event_type in ["temp", "temperature"]:
-                temps = daily.get("temperature_2m", [])
+                temps = daily.get("temperature_2m_max", [])
                 if temps:
                     above_threshold = sum(1 for t in temps if t > threshold) / len(
                         temps
@@ -226,7 +234,7 @@ class WeatherModelEngine:
                     forecast.sources.append("OpenMeteo-ECMWF")
 
             elif event_type == "wind":
-                winds = daily.get("windspeed_10m", [])
+                winds = daily.get("windspeed_10m_max", [])
                 if winds:
                     above_threshold = sum(1 for w in winds if w > threshold) / len(
                         winds
