@@ -24,6 +24,7 @@ from textual.binding import Binding
 from src.state import StateManager
 from src.formulas import QuantEngine
 from src.config import trading_config
+from src.opportunities import OpportunityCandidate, OpportunityScanner
 from src.utils import utcnow
 
 logger = logging.getLogger(__name__)
@@ -158,13 +159,11 @@ class MarketScannerWidget(Static):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "scan-btn":
-            self.scanning = True
-            self.query_one("#scanner-log", Log).write_line(
-                "[SCANNER] Starting market scan..."
-            )
+            self.app.start_scanner()
+            event.stop()
         elif event.button.id == "stop-btn":
-            self.scanning = False
-            self.query_one("#scanner-log", Log).write_line("[SCANNER] Stopped.")
+            self.app.stop_scanner()
+            event.stop()
 
     def add_log(self, message: str):
         self.query_one("#scanner-log", Log).write_line(message)
@@ -261,7 +260,12 @@ class KalshiQuantApp(App):
         self.state = state_manager
         self.quant = QuantEngine()
         self._refresh_task = None
+        self._scan_task = None
         self._signals_history = []
+        self._scanner_settings = {
+            "min_edge": trading_config.min_edge_pct,
+            "min_iy": trading_config.min_iy_annualized,
+        }
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -344,14 +348,109 @@ class KalshiQuantApp(App):
 
     def action_scan(self):
         """Trigger scan action."""
-        scanner = self.query_one("#scanner", MarketScannerWidget)
-        scanner.add_log("[SCANNER] Manual scan triggered via hotkey")
+        self.start_scanner(manual=True)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "save-settings":
-            self.query_one("#scanner", MarketScannerWidget).add_log(
-                "[SETTINGS] Saved (mock)"
+            self.save_settings()
+            event.stop()
+
+    def start_scanner(self, manual: bool = False):
+        """Start a bounded local scan from stored market snapshots."""
+        scanner = self.query_one("#scanner", MarketScannerWidget)
+        if self._scan_task and not self._scan_task.done():
+            scanner.add_log("[SCANNER] Scan already running")
+            return
+        try:
+            self._scanner_settings.update(self._scanner_control_settings())
+        except ValueError as exc:
+            scanner.add_log(f"[SCANNER] Invalid settings: {exc}")
+            return
+        scanner.scanning = True
+        scanner.add_log(
+            "[SCANNER] Manual scan triggered"
+            if manual
+            else "[SCANNER] Starting local scan"
+        )
+        self._scan_task = asyncio.create_task(self._run_local_scan())
+
+    def stop_scanner(self):
+        """Cancel any active scan task."""
+        scanner = self.query_one("#scanner", MarketScannerWidget)
+        if self._scan_task and not self._scan_task.done():
+            self._scan_task.cancel()
+        scanner.scanning = False
+        scanner.add_log("[SCANNER] Stopped.")
+
+    def save_settings(self):
+        """Validate and stage runtime settings."""
+        scanner = self.query_one("#scanner", MarketScannerWidget)
+        try:
+            min_edge = _parse_percent_input(
+                self.query_one("#min-edge-input", Input).value,
+                "Min Edge %",
             )
+            min_iy = _parse_percent_input(
+                self.query_one("#min-iy-input", Input).value,
+                "Min IY %",
+            )
+            self._scanner_settings.update({"min_edge": min_edge, "min_iy": min_iy})
+            scanner.add_log("[SETTINGS] Saved runtime settings")
+        except ValueError as exc:
+            scanner.add_log(f"[SETTINGS] Invalid settings: {exc}")
+
+    async def _run_local_scan(self):
+        scanner = self.query_one("#scanner", MarketScannerWidget)
+        try:
+            snapshots = await self.state.get_latest_market_snapshots(limit=100)
+            if not snapshots:
+                scanner.add_log("[SCANNER] No local market snapshots available")
+                return
+            candidates = [_candidate_from_snapshot(snapshot) for snapshot in snapshots]
+            results = OpportunityScanner(self.quant).rank(candidates)
+            min_edge = self._scanner_settings["min_edge"]
+            min_iy = self._scanner_settings["min_iy"]
+            filtered = [
+                result
+                for result in results
+                if abs(result.fee_adjusted_edge) >= min_edge
+                and result.annualized_yield >= min_iy
+            ]
+            if not filtered:
+                scanner.add_log("[SCANNER] No signals matched current thresholds")
+                return
+            for result in filtered[:20]:
+                self.add_signal(
+                    {
+                        "ticker": result.ticker,
+                        "side": result.side,
+                        "price": result.entry_price,
+                        "edge": result.fee_adjusted_edge,
+                        "iy": result.annualized_yield,
+                        "action": result.action,
+                    }
+                )
+            scanner.add_log(f"[SCANNER] Added {len(filtered[:20])} local signals")
+        except asyncio.CancelledError:
+            scanner.add_log("[SCANNER] Cancelled active scan")
+            raise
+        except Exception as exc:
+            logger.exception("Local scan failed")
+            scanner.add_log(f"[SCANNER] Error: {exc}")
+        finally:
+            scanner.scanning = False
+
+    def _scanner_control_settings(self) -> dict:
+        return {
+            "min_edge": _parse_percent_input(
+                self.query_one("#min-edge", Input).value,
+                "Min Edge %",
+            ),
+            "min_iy": _parse_percent_input(
+                self.query_one("#min-iy", Input).value,
+                "Min IY %",
+            ),
+        }
 
     def add_signal(self, signal: dict):
         """Add a trade signal to history."""
@@ -361,9 +460,42 @@ class KalshiQuantApp(App):
         signals_widget.signals = self._signals_history
 
     async def on_unmount(self):
+        if self._scan_task:
+            self._scan_task.cancel()
+            try:
+                await self._scan_task
+            except asyncio.CancelledError:
+                pass
         if self._refresh_task:
             self._refresh_task.cancel()
             try:
                 await self._refresh_task
             except asyncio.CancelledError:
                 pass
+
+
+def _parse_percent_input(raw: str, label: str) -> float:
+    value = float(raw)
+    if value < 0:
+        raise ValueError(f"{label} cannot be negative")
+    return value / 100.0 if value > 1 else value
+
+
+def _candidate_from_snapshot(snapshot) -> OpportunityCandidate:
+    midpoint = (
+        ((snapshot.yes_bid or 0) + (snapshot.yes_ask or 0)) / 200.0
+        if snapshot.yes_bid is not None and snapshot.yes_ask is not None
+        else 0.5
+    )
+    return OpportunityCandidate(
+        ticker=snapshot.ticker,
+        title=snapshot.title or snapshot.ticker,
+        model_probability=max(0.01, min(0.99, midpoint)),
+        yes_bid=snapshot.yes_bid or snapshot.bid or 0.0,
+        yes_ask=snapshot.yes_ask or snapshot.ask or 0.0,
+        no_bid=snapshot.no_bid,
+        no_ask=snapshot.no_ask,
+        confidence=0.5,
+        volume=snapshot.volume_24h or 0,
+        open_interest=snapshot.open_interest or 0,
+    )

@@ -2,6 +2,7 @@ import json
 
 from click.testing import CliRunner
 
+import src.cli as cli_module
 from src.cli import cli
 
 
@@ -216,6 +217,126 @@ def test_opportunities_cli_writes_rankings_json():
     assert result.exit_code == 0
     assert "Opportunities" in result.output
     assert payload[0]["action"] == "BUY_YES"
+
+
+def test_analyze_cli_requires_explicit_quotes_without_fetch():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        result = runner.invoke(
+            cli,
+            ["analyze", "--ticker", "TEST", "--model-prob", "0.6"],
+        )
+
+    assert result.exit_code != 0
+    assert "missing YES quote inputs" in result.output
+
+
+def test_analyze_cli_uses_explicit_yes_and_no_quotes():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        yes_result = runner.invoke(
+            cli,
+            [
+                "analyze",
+                "--ticker",
+                "TEST",
+                "--model-prob",
+                "0.7",
+                "--yes-bid",
+                "39",
+                "--yes-ask",
+                "41",
+                "--resolution-date",
+                "2026-06-18T20:00:00Z",
+            ],
+        )
+        no_result = runner.invoke(
+            cli,
+            [
+                "analyze",
+                "--ticker",
+                "TEST",
+                "--model-prob",
+                "0.3",
+                "--side",
+                "no",
+                "--no-bid",
+                "59",
+                "--no-ask",
+                "61",
+                "--days-to-resolution",
+                "10",
+            ],
+        )
+
+    assert yes_result.exit_code == 0
+    assert "39.0¢ / 41.0¢" in yes_result.output
+    assert no_result.exit_code == 0
+    assert "59.0¢ / 61.0¢" in no_result.output
+
+
+def test_collect_snapshots_cli_writes_state(monkeypatch):
+    class FakeClient:
+        async def get_market(self, ticker):
+            return {
+                "market": {
+                    "ticker": ticker,
+                    "title": "NYC Daily High above 88.5F",
+                    "volume": 10,
+                    "open_interest": 20,
+                }
+            }
+
+        async def get_market_orderbook(self, ticker, depth=10):
+            return {
+                "orderbook": {"yes_bid": 39, "yes_ask": 41, "no_bid": 59, "no_ask": 61}
+            }
+
+    monkeypatch.setattr(cli_module, "KalshiRestClient", FakeClient)
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        result = runner.invoke(
+            cli,
+            [
+                "collect-snapshots",
+                "--db-path",
+                "state.db",
+                "--ticker",
+                "HIGHNY-TEST-B88.5",
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Collected 1/1 market snapshots" in result.output
+
+
+def test_strategies_cli_lists_and_runs_weather_strategy():
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        list_result = runner.invoke(
+            cli,
+            ["strategies", "list", "--config", "strategy-config.json"],
+        )
+        run_result = runner.invoke(
+            cli,
+            [
+                "strategies",
+                "run",
+                "weather",
+                "--config",
+                "strategy-config.json",
+                "--json-out",
+                "weather-run.json",
+            ],
+        )
+        with open("weather-run.json", encoding="utf-8") as handle:
+            payload = json.load(handle)
+
+    assert list_result.exit_code == 0
+    assert "weather" in list_result.output
+    assert run_result.exit_code == 0
+    assert payload["strategy_id"] == "weather"
+    assert payload["status"] == "completed"
 
 
 def test_paper_cli_records_and_lists_positions():

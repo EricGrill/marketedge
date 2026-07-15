@@ -15,6 +15,11 @@ class FakeKalshiClient:
         return self.response
 
 
+class EmptyWeatherScanner:
+    async def scan_weather_markets(self, limit=100):
+        return []
+
+
 def _signal(quantity=5):
     return TradeSignal(
         ticker="RAIN-NYC-TEST",
@@ -97,3 +102,84 @@ async def test_strategy_keeps_open_order_without_position_when_unfilled(tmp_path
     assert result["position_id"] is None
     assert ledger.get(order_id).state == OrderState.PENDING
     assert await state.get_open_positions() == []
+
+
+@pytest.mark.asyncio
+async def test_strategy_uses_dashboard_sample_markets_when_dry_run_scan_is_empty(
+    tmp_path,
+):
+    state = StateManager(str(tmp_path / "state.db"))
+    strategy = WeatherTradingStrategy(
+        state,
+        FakeKalshiClient({}),
+        use_sample_markets_if_empty=True,
+        execute_orders=False,
+    )
+    strategy.scanner = EmptyWeatherScanner()
+
+    evaluated = []
+
+    async def fake_evaluate(market, bankroll):
+        evaluated.append(market)
+        return None
+
+    strategy._evaluate_market = fake_evaluate
+
+    signals = await strategy.scan_and_evaluate()
+
+    assert signals == []
+    assert len(evaluated) == 9
+    assert evaluated[0]["ticker"] == "HIGHNY-26JUN18-B88.5"
+    assert evaluated[-1]["ticker"] == "HIGHBOS-26JUN18-B79.5"
+
+
+@pytest.mark.asyncio
+async def test_continuous_dry_run_logs_signals_without_executing_orders(tmp_path):
+    state = StateManager(str(tmp_path / "state.db"))
+    strategy = WeatherTradingStrategy(
+        state,
+        FakeKalshiClient({"order": {"status": "filled"}}),
+        execute_orders=False,
+    )
+    executed = []
+
+    async def fake_scan():
+        strategy.running = False
+        return [_signal()]
+
+    async def fake_execute(signal):
+        executed.append(signal)
+
+    async def fake_check_exits():
+        return None
+
+    strategy.scan_and_evaluate = fake_scan
+    strategy.execute_signal = fake_execute
+    strategy._check_exits = fake_check_exits
+
+    await strategy.run_continuous(interval_seconds=0)
+
+    assert executed == []
+
+    events = await state.list_audit_events()
+    event_types = {event.event_type for event in events}
+    assert "risk_decision" in event_types
+    assert "dry_run_order_review" in event_types
+
+
+@pytest.mark.asyncio
+async def test_strategy_blocks_order_before_venue_when_risk_policy_refuses(tmp_path):
+    state = StateManager(str(tmp_path / "state.db"))
+    ledger = OrderLedger(tmp_path / "orders.jsonl")
+    client = FakeKalshiClient({"order": {"status": "filled"}})
+    strategy = WeatherTradingStrategy(state, client, order_ledger=ledger)
+
+    result = await strategy.execute_signal(_signal(quantity=10_000))
+
+    assert result["success"] is False
+    assert result["error"] == "risk policy blocked order"
+    assert client.orders == []
+    assert ledger.events() == []
+
+    events = await state.list_audit_events()
+    assert {event.event_type for event in events} == {"order_intent", "risk_decision"}

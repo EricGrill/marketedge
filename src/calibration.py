@@ -12,6 +12,7 @@ from statistics import mean
 from typing import Any, Dict, Iterable, List, Mapping, Tuple
 
 from src.settlements import SettlementResolver
+from src.state import StateManager
 
 
 @dataclass(frozen=True)
@@ -272,6 +273,74 @@ def load_forecasts_jsonl(path: str | Path) -> List[ForecastInput]:
     return forecasts
 
 
+async def load_persisted_forecasts(
+    state: StateManager,
+    *,
+    strategy: str | None = None,
+    market_category: str | None = None,
+    limit: int = 1000,
+) -> List[ForecastInput]:
+    """Load forecasts persisted in SQLite into calibration input rows."""
+    rows = await state.get_weather_forecasts(
+        strategy=strategy,
+        market_category=market_category,
+        limit=limit,
+    )
+    forecasts: List[ForecastInput] = []
+    for row in rows:
+        forecasts.append(
+            ForecastInput(
+                timestamp=row.created_at,
+                ticker=row.market_ticker,
+                model_probability=row.blended_probability,
+                strategy=row.strategy or "weather",
+                market_category=row.market_category or "weather",
+                event_type=row.event_type or "unknown",
+                metadata={
+                    "forecast_id": row.id,
+                    "location": row.location,
+                    "forecast_cycle": (
+                        row.forecast_cycle.isoformat() if row.forecast_cycle else None
+                    ),
+                    "confidence": row.confidence,
+                    "model_version": row.model_version,
+                    "source_metadata": _json_dict(row.source_metadata_json),
+                    "feature_metadata": _json_dict(row.feature_metadata_json),
+                },
+            )
+        )
+    return forecasts
+
+
+async def score_persisted_forecasts(
+    state: StateManager,
+    settlements: SettlementResolver,
+    *,
+    strategy: str | None = None,
+    market_category: str | None = None,
+    limit: int = 1000,
+) -> CalibrationSummary:
+    """Join stored forecasts to settlement outcomes and score calibration."""
+    forecasts = await load_persisted_forecasts(
+        state,
+        strategy=strategy,
+        market_category=market_category,
+        limit=limit,
+    )
+    return CalibrationScorer().score(forecasts, settlements)
+
+
+def export_calibration_summary(summary: CalibrationSummary, path: str | Path) -> Path:
+    """Write dashboard-ready calibration JSON."""
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(summary.to_dict(), indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return output
+
+
 def _forecast_from_mapping(row: Mapping[str, Any]) -> ForecastInput:
     known_fields = {
         "timestamp",
@@ -290,3 +359,13 @@ def _forecast_from_mapping(row: Mapping[str, Any]) -> ForecastInput:
         event_type=str(row.get("event_type") or "unknown"),
         metadata={key: value for key, value in row.items() if key not in known_fields},
     )
+
+
+def _json_dict(value: str | None) -> Dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}

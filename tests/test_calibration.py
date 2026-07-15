@@ -5,10 +5,13 @@ import pytest
 from src.calibration import (
     CalibrationScorer,
     ForecastInput,
+    export_calibration_summary,
     load_forecasts_csv,
     load_forecasts_jsonl,
+    score_persisted_forecasts,
 )
 from src.settlements import SettlementOutcome, SettlementResolver
+from src.state import StateManager
 
 
 def _settlements() -> SettlementResolver:
@@ -132,3 +135,36 @@ def test_load_forecasts_jsonl_parses_records(tmp_path):
 
     assert forecasts[0].ticker == "YES-1"
     assert forecasts[0].model_probability == 0.62
+
+
+@pytest.mark.asyncio
+async def test_persisted_weather_forecast_scores_and_exports(tmp_path):
+    state = StateManager(str(tmp_path / "state.db"))
+    await state.add_weather_forecast(
+        {
+            "location": "NYC",
+            "event_type": "temperature",
+            "forecast_cycle": datetime(2026, 6, 18, 12, 0),
+            "ecmwf_prob": 0.7,
+            "gefs_prob": 0.7,
+            "analog_prob": 0.7,
+            "microclimate_prob": 0.7,
+            "nws_delta": 0.7,
+            "blended_probability": 0.7,
+            "confidence": 0.8,
+            "market_ticker": "YES-1",
+            "market_price": 40,
+            "strategy": "weather",
+            "model_version": "weather-heuristic-v1",
+            "market_category": "weather",
+            "source_metadata": {"sources": ["fixture"]},
+            "feature_metadata": {"threshold": 88.5},
+        }
+    )
+
+    summary = await score_persisted_forecasts(state, _settlements())
+    output = export_calibration_summary(summary, tmp_path / "calibration.json")
+
+    assert summary.total_forecasts == 1
+    assert summary.groups[0].strategy == "weather"
+    assert output.exists()

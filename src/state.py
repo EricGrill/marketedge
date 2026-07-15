@@ -17,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Text,
+    text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.types import TypeDecorator
@@ -156,6 +157,14 @@ class WeatherForecast(Base):
     market_price = Column(Float, nullable=True)
     market_timestamp = Column(UTCDateTime, nullable=True)
 
+    # Category-neutral forecast metadata used for calibration feedback.
+    strategy = Column(String(80), default="weather")
+    model_version = Column(String(80), default="")
+    market_category = Column(String(80), default="weather")
+    source_metadata_json = Column(Text, default="{}")
+    feature_metadata_json = Column(Text, default="{}")
+    forecast_cycle_id = Column(String(120), default="")
+
     created_at = Column(UTCDateTime, default=utcnow)
 
 
@@ -164,6 +173,9 @@ class MarketSnapshot(Base):
 
     id = Column(Integer, primary_key=True)
     ticker = Column(String(50), index=True)
+    title = Column(String(500), default="")
+    event_metadata_json = Column(Text, default="{}")
+    source = Column(String(80), default="")
     bid = Column(Float)
     ask = Column(Float)
     last_price = Column(Float)
@@ -210,6 +222,22 @@ class AuditEvent(Base):
     created_at = Column(UTCDateTime, default=utcnow, nullable=False, index=True)
 
 
+class StrategyRun(Base):
+    __tablename__ = "strategy_runs"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(String(120), nullable=False, unique=True, index=True)
+    strategy_id = Column(String(120), nullable=False, index=True)
+    status = Column(String(40), nullable=False, default="started")
+    started_at = Column(UTCDateTime, default=utcnow, nullable=False, index=True)
+    finished_at = Column(UTCDateTime, nullable=True)
+    warnings_json = Column(Text, nullable=False, default="[]")
+    signal_count = Column(Integer, nullable=False, default=0)
+    artifact_paths_json = Column(Text, nullable=False, default="[]")
+    config_json = Column(Text, nullable=False, default="{}")
+    explanation_json = Column(Text, nullable=False, default="{}")
+
+
 # ========== STATE MANAGER ==========
 
 
@@ -230,6 +258,7 @@ class StateManager:
 
     def _init_db(self):
         Base.metadata.create_all(self.engine)
+        self._ensure_additive_columns()
         with self.Session() as session:
             if (
                 not session.query(SchemaMigration)
@@ -245,6 +274,47 @@ class StateManager:
             if not session.query(PortfolioState).first():
                 session.add(PortfolioState())
             session.commit()
+
+    def _ensure_additive_columns(self) -> None:
+        """Add nullable columns introduced after the initial local schema.
+
+        The app owns small local SQLite files and historically relied on
+        ``create_all``. SQLite does not add new columns to existing tables during
+        ``create_all``, so additive schema changes need a lightweight backfill
+        path to keep existing operator databases usable without a manual
+        migration command.
+        """
+        column_specs = {
+            "market_snapshots": {
+                "title": "VARCHAR(500) DEFAULT ''",
+                "event_metadata_json": "TEXT DEFAULT '{}'",
+                "source": "VARCHAR(80) DEFAULT ''",
+            },
+            "weather_forecasts": {
+                "strategy": "VARCHAR(80) DEFAULT 'weather'",
+                "model_version": "VARCHAR(80) DEFAULT ''",
+                "market_category": "VARCHAR(80) DEFAULT 'weather'",
+                "source_metadata_json": "TEXT DEFAULT '{}'",
+                "feature_metadata_json": "TEXT DEFAULT '{}'",
+                "forecast_cycle_id": "VARCHAR(120) DEFAULT ''",
+            },
+        }
+        with self.engine.begin() as connection:
+            for table_name, specs in column_specs.items():
+                existing = {
+                    row[1]
+                    for row in connection.execute(
+                        text(f"PRAGMA table_info({table_name})")
+                    )
+                }
+                for column_name, sql_type in specs.items():
+                    if column_name not in existing:
+                        connection.execute(
+                            text(
+                                f"ALTER TABLE {table_name} "
+                                f"ADD COLUMN {column_name} {sql_type}"
+                            )
+                        )
 
     async def list_schema_migrations(self) -> List[SchemaMigration]:
         async with self._lock:
@@ -283,6 +353,59 @@ class StateManager:
                     .limit(limit)
                     .all()
                 )
+
+    async def start_strategy_run(
+        self,
+        strategy_id: str,
+        run_id: str,
+        config: Dict[str, Any] | None = None,
+    ) -> str:
+        async with self._lock:
+            with self.Session() as session:
+                run = StrategyRun(
+                    run_id=run_id,
+                    strategy_id=strategy_id,
+                    status="started",
+                    config_json=json.dumps(config or {}, sort_keys=True),
+                )
+                session.add(run)
+                session.commit()
+                return run.run_id
+
+    async def finish_strategy_run(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        warnings: List[str] | None = None,
+        signal_count: int = 0,
+        artifact_paths: List[str] | None = None,
+        explanation: Dict[str, Any] | None = None,
+    ) -> None:
+        async with self._lock:
+            with self.Session() as session:
+                run = session.query(StrategyRun).filter_by(run_id=run_id).first()
+                if not run:
+                    raise ValueError(f"strategy run not found: {run_id}")
+                run.status = status
+                run.finished_at = utcnow()
+                run.warnings_json = json.dumps(warnings or [], sort_keys=True)
+                run.signal_count = signal_count
+                run.artifact_paths_json = json.dumps(
+                    artifact_paths or [], sort_keys=True
+                )
+                run.explanation_json = json.dumps(explanation or {}, sort_keys=True)
+                session.commit()
+
+    async def list_strategy_runs(
+        self, strategy_id: str | None = None, limit: int = 50
+    ) -> List[StrategyRun]:
+        async with self._lock:
+            with self.Session() as session:
+                query = session.query(StrategyRun)
+                if strategy_id:
+                    query = query.filter_by(strategy_id=strategy_id)
+                return query.order_by(StrategyRun.started_at.desc()).limit(limit).all()
 
     async def add_position(self, position_data: Dict[str, Any]) -> int:
         async with self._lock:
@@ -326,10 +449,33 @@ class StateManager:
     async def add_weather_forecast(self, forecast_data: Dict[str, Any]) -> int:
         async with self._lock:
             with self.Session() as session:
-                fc = WeatherForecast(**forecast_data)
+                payload = dict(forecast_data)
+                for key in ("source_metadata", "feature_metadata"):
+                    if key in payload:
+                        payload[f"{key}_json"] = json.dumps(
+                            payload.pop(key), sort_keys=True
+                        )
+                fc = WeatherForecast(**payload)
                 session.add(fc)
                 session.commit()
                 return fc.id
+
+    async def get_weather_forecasts(
+        self,
+        strategy: str | None = None,
+        market_category: str | None = None,
+        limit: int = 1000,
+    ) -> List[WeatherForecast]:
+        async with self._lock:
+            with self.Session() as session:
+                query = session.query(WeatherForecast)
+                if strategy:
+                    query = query.filter_by(strategy=strategy)
+                if market_category:
+                    query = query.filter_by(market_category=market_category)
+                return (
+                    query.order_by(WeatherForecast.created_at.desc()).limit(limit).all()
+                )
 
     async def get_latest_forecast(self, ticker: str) -> Optional[WeatherForecast]:
         async with self._lock:
@@ -344,7 +490,12 @@ class StateManager:
     async def add_market_snapshot(self, snapshot: Dict[str, Any]):
         async with self._lock:
             with self.Session() as session:
-                snap = MarketSnapshot(**snapshot)
+                payload = dict(snapshot)
+                if "event_metadata" in payload:
+                    payload["event_metadata_json"] = json.dumps(
+                        payload.pop("event_metadata"), sort_keys=True
+                    )
+                snap = MarketSnapshot(**payload)
                 session.add(snap)
                 session.commit()
 
