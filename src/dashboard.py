@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from src.formulas import QuantEngine, REGION_BY_CITY
 from src.paper import PaperTradingLedger
@@ -32,7 +32,7 @@ async def build_dashboard_payload(
         "strategy_runs": [_strategy_run_payload(run) for run in strategy_runs],
         "risk": QuantEngine().summarize_correlated_risk(
             position_payloads,
-            bankroll=portfolio.bankroll if portfolio else 0,
+            bankroll=cast(float, portfolio.bankroll) if portfolio else 0.0,
         ),
     }
 

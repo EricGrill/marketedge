@@ -5,7 +5,7 @@ import asyncio
 import copy
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, cast
 from dataclasses import dataclass
 
 from src.config import trading_config
@@ -155,7 +155,7 @@ class TradeSignal:
     region: str = ""
     correlation_group: str = ""
     resolution_date: datetime | None = None
-    source_metadata: Dict[str, Any] = None
+    source_metadata: Optional[Dict[str, Any]] = None
 
 
 class WeatherTradingStrategy:
@@ -165,7 +165,7 @@ class WeatherTradingStrategy:
         self,
         state_manager: StateManager,
         kalshi_client: KalshiRestClient,
-        quant_engine: QuantEngine = None,
+        quant_engine: Optional[QuantEngine] = None,
         order_ledger: OrderLedger | None = None,
         use_sample_markets_if_empty: bool = False,
         execute_orders: bool = True,
@@ -191,7 +191,12 @@ class WeatherTradingStrategy:
 
         # 1. Get portfolio state
         portfolio = await self.state.get_portfolio_state()
-        bankroll = portfolio.bankroll if portfolio else trading_config.initial_bankroll
+        # PortfolioState is a SQLAlchemy model; bankroll reads as Column[Any].
+        bankroll = (
+            cast(float, portfolio.bankroll)
+            if portfolio
+            else trading_config.initial_bankroll
+        )
 
         # 2. Scan for weather markets
         logger.info("Scanning weather markets...")
@@ -218,7 +223,7 @@ class WeatherTradingStrategy:
         self, market: Dict, bankroll: float
     ) -> Optional[TradeSignal]:
         """Evaluate a single market for trading opportunity."""
-        ticker = market.get("ticker")
+        ticker = str(market.get("ticker") or "")
         title = market.get("title", "")
 
         # Sample dry-run markets carry top-level quotes so they do not need a
@@ -716,7 +721,7 @@ class WeatherTradingStrategy:
             if filled_quantity:
                 return filled_quantity, notional / filled_quantity
 
-        filled_quantity = self._first_int(
+        resolved = self._first_int(
             payloads,
             (
                 "filled_quantity",
@@ -727,15 +732,15 @@ class WeatherTradingStrategy:
             ),
         )
         status = self._order_status(order_response)
-        if filled_quantity is None:
+        if resolved is None:
             if status in {"open", "pending", "resting", "working"}:
-                filled_quantity = 0
+                resolved = 0
             elif status in {"partially_filled", "partial_fill"}:
-                filled_quantity = 0
+                resolved = 0
             else:
-                filled_quantity = requested_quantity
+                resolved = requested_quantity
 
-        filled_quantity = max(0, min(filled_quantity, requested_quantity))
+        filled_quantity = max(0, min(resolved, requested_quantity))
         average_fill_price = self._first_float(
             payloads, ("average_price", "avg_price", "fill_price", "price")
         )

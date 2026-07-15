@@ -220,7 +220,9 @@ class QuantEngine:
         if current_date is None:
             current_date = utcnow()
 
-        days_to_res = (ensure_utc(resolution_date) - ensure_utc(current_date)).days
+        days_to_res: float = (
+            ensure_utc(resolution_date) - ensure_utc(current_date)
+        ).days
         if days_to_res <= 0:
             days_to_res = 0.1  # Avoid division by zero
 

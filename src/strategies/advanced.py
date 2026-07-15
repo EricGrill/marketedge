@@ -54,8 +54,8 @@ class RelativeValueStrategy:
     def evaluate(
         self, markets: Iterable[NormalizedMarket | Mapping[str, Any]]
     ) -> List[StrategyOpportunity]:
-        normalized = [_as_market(market) for market in markets]
-        normalized = [market for market in normalized if market]
+        candidates = [_as_market(market) for market in markets]
+        normalized = [market for market in candidates if market is not None]
         return [
             *self._threshold_ladders(normalized),
             *self._mutually_exclusive_sets(normalized),
@@ -295,7 +295,7 @@ class CalibrationWeightedEnsembleStrategy:
         current = as_of or utcnow()
 
         raw_weights = []
-        contributions = []
+        contributions: List[Dict[str, Any]] = []
         for source in rows:
             metric = by_source.get(source.source_id)
             weight, reasons = self._weight_for(source, metric, current)
@@ -604,8 +604,10 @@ def _catalyst_from_mapping(row: Mapping[str, Any]) -> CatalystRecord:
     tickers = row.get("affected_tickers") or row.get("tickers") or row.get("ticker")
     if isinstance(tickers, str):
         affected = [item.strip() for item in tickers.replace(";", ",").split(",")]
-    else:
+    elif isinstance(tickers, (list, tuple, set)):
         affected = [str(item) for item in tickers]
+    else:
+        affected = []
     return CatalystRecord(
         catalyst_id=str(row.get("catalyst_id") or row.get("id")),
         event_type=str(row.get("event_type") or row.get("type") or "catalyst"),

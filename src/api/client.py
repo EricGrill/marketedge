@@ -7,7 +7,7 @@ import hashlib
 import base64
 import asyncio
 import logging
-from typing import Optional, Dict, Any, List, Callable
+from typing import Optional, Dict, Any, List, Callable, Tuple
 from dataclasses import dataclass
 
 import httpx
@@ -32,7 +32,9 @@ class KalshiAuth:
     def __init__(self, creds: KalshiCredentials):
         self.creds = creds
 
-    def generate_signature(self, method: str, path: str, body: str = "") -> str:
+    def generate_signature(
+        self, method: str, path: str, body: str = ""
+    ) -> Tuple[str, str]:
         """Generate HMAC signature for request."""
         timestamp = str(int(utcnow().timestamp()))
         msg_string = timestamp + method.upper() + path + body
@@ -179,7 +181,7 @@ class KalshiRestClient:
         limit: int = 100,
     ) -> Dict:
         """Get your orders."""
-        params = {"limit": limit}
+        params: Dict[str, Any] = {"limit": limit}
         if status:
             params["status"] = status
         if ticker:
@@ -203,7 +205,7 @@ class KalshiRestClient:
         limit: int = 100,
     ) -> Dict:
         """Get positions."""
-        params = {"limit": limit}
+        params: Dict[str, Any] = {"limit": limit}
         if status:
             params["status"] = status
         if ticker:
@@ -217,7 +219,7 @@ class KalshiRestClient:
         limit: int = 100,
     ) -> Dict:
         """Get fill history."""
-        params = {"limit": limit}
+        params: Dict[str, Any] = {"limit": limit}
         if order_id:
             params["order_id"] = order_id
         if ticker:

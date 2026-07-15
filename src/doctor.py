@@ -57,7 +57,7 @@ def run_health_checks(
     """Return local setup checks without requiring network access."""
     env_file = Path(env_path)
     database_path = Path(
-        db_path or os.getenv("MARKETEDGE_DB_PATH", "data/kalshi_quant.db")
+        str(db_path or os.getenv("MARKETEDGE_DB_PATH", "data/kalshi_quant.db"))
     )
     dashboard_file = Path(dashboard_path)
 

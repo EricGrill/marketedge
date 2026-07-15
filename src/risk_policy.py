@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, cast
 
 from src.config import trading_config
 from src.formulas import QuantEngine
@@ -100,10 +100,16 @@ class PreOrderRiskPolicy:
     ) -> RiskDecision:
         portfolio = await state.get_portfolio_state()
         open_positions = await state.get_open_positions()
-        bankroll = portfolio.bankroll if portfolio else trading_config.initial_bankroll
-        current_exposure = portfolio.total_exposure if portfolio else 0.0
+        # PortfolioState is a SQLAlchemy model; attribute reads type as Column[Any].
+        # Cast the numeric fields to their real runtime type (float).
+        bankroll = (
+            cast(float, portfolio.bankroll)
+            if portfolio
+            else trading_config.initial_bankroll
+        )
+        current_exposure = cast(float, portfolio.total_exposure) if portfolio else 0.0
         projected_exposure = current_exposure + intent.notional
-        daily_loss = abs(min(portfolio.mtd_pnl if portfolio else 0.0, 0.0))
+        daily_loss = abs(min(cast(float, portfolio.mtd_pnl) if portfolio else 0.0, 0.0))
         correlated_exposure = self._correlated_exposure(open_positions, intent)
 
         reasons: List[str] = []

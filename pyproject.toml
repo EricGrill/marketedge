@@ -32,6 +32,7 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "black>=24.0.0",
     "flake8>=7.0.0",
+    "mypy>=1.10",
 ]
 
 [project.urls]
@@ -45,3 +46,22 @@ marketedge = "src.cli:cli"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.mypy]
+# Pragmatic, non-strict baseline (CHA-2241). The type hints already exist
+# throughout the codebase; this enforces them without a big-bang refactor.
+# Ratchet strictness up in follow-ups.
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+# Untyped function bodies aren't checked yet; enable per-module as we ratchet.
+check_untyped_defs = false
+
+# SQLAlchemy Core (pre-`Mapped[]`) models expose class-level `Column[...]`
+# attributes that mypy reads as the descriptor type, producing dozens of
+# false positives on ORM attribute access. Quarantine these until the models
+# adopt SQLAlchemy 2.0 `Mapped[]` annotations (tracked as a ratchet follow-up).
+[[tool.mypy.overrides]]
+module = ["src.state", "src.tui.app", "src.calibration"]
+ignore_errors = true

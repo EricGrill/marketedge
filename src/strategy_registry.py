@@ -137,9 +137,9 @@ class StrategyManager:
 
     async def list_status(self) -> List[Dict[str, Any]]:
         runs = await self.state.list_strategy_runs(limit=200)
-        latest_by_strategy = {}
+        latest_by_strategy: Dict[str, Any] = {}
         for run in runs:
-            latest_by_strategy.setdefault(run.strategy_id, run)
+            latest_by_strategy.setdefault(str(run.strategy_id), run)
 
         statuses = []
         config = self.config_store.load()

@@ -3,8 +3,8 @@
 
 import logging
 from datetime import datetime
-from typing import Dict, Any, List
-from dataclasses import dataclass
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass, field
 
 import httpx
 import numpy as np
@@ -41,11 +41,7 @@ class WeatherForecastData:
     threshold: float = 0.0  # e.g., 1 inch of rain
 
     # Metadata
-    sources: List[str] = None
-
-    def __post_init__(self):
-        if self.sources is None:
-            self.sources = []
+    sources: List[str] = field(default_factory=list)
 
 
 class NWSClient:
@@ -127,7 +123,11 @@ class OpenMeteoClient:
         self.client = httpx.AsyncClient(timeout=30.0)
 
     async def get_ensemble_forecast(
-        self, lat: float, lon: float, days: int = 14, variables: List[str] = None
+        self,
+        lat: float,
+        lon: float,
+        days: int = 14,
+        variables: Optional[List[str]] = None,
     ) -> Dict:
         """Get ensemble forecast data."""
         # The /forecast `daily` field only accepts daily-aggregation variable
