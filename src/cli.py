@@ -29,6 +29,7 @@ from src.data_collection import collect_market_snapshots, fetch_market_quotes
 from src.calibration import (
     CalibrationScorer,
     export_calibration_summary,
+    fit_persisted_weights,
     load_forecasts_csv,
     load_forecasts_jsonl,
     score_persisted_forecasts,
@@ -404,6 +405,66 @@ def calibration_score(forecasts, settlements, file_format, db_path, json_out):
     if json_out:
         output = export_calibration_summary(summary, json_out)
         console.print(f"[green]Wrote calibration summary to {output}[/green]")
+
+
+@cli.command("calibration-fit-weights")
+@click.option(
+    "--settlements", required=True, type=click.Path(exists=True, dir_okay=False)
+)
+@click.option(
+    "--format",
+    "file_format",
+    type=click.Choice(["csv", "jsonl"]),
+    default="csv",
+    show_default=True,
+)
+@click.option(
+    "--db-path", default=None, help="SQLite database path for stored forecasts."
+)
+@click.option("--json-out", type=click.Path(dir_okay=False, writable=True))
+def calibration_fit_weights(settlements, file_format, db_path, json_out):
+    """Propose (dry-run) weather-blend weights learned from settled forecasts."""
+    resolver = (
+        load_settlements_jsonl(settlements)
+        if file_format == "jsonl"
+        else load_settlements_csv(settlements)
+    )
+    result = asyncio.run(fit_persisted_weights(StateManager(db_path), resolver))
+
+    if result.sample_count == 0:
+        console.print(
+            "[yellow]No settled forecasts to fit against; weights unchanged.[/yellow]"
+        )
+        return
+
+    table = Table(title="Proposed blend weights (dry run)")
+    table.add_column("Source", style="cyan")
+    table.add_column("Current", justify="right")
+    table.add_column("Fitted", justify="right", style="green")
+    for name in result.source_names:
+        table.add_row(
+            name,
+            f"{result.baseline_weights[name]:.3f}",
+            f"{result.fitted_weights[name]:.3f}",
+        )
+    console.print(table)
+    console.print(
+        f"Brier: {result.baseline_brier:.4f} (current) -> "
+        f"{result.fitted_brier:.4f} (fitted) over {result.sample_count} forecasts"
+    )
+    if result.improved:
+        console.print("[green]Fitted weights improve calibration.[/green]")
+    else:
+        console.print("[yellow]No improvement over current weights.[/yellow]")
+    console.print("[yellow]Dry run — weather_config weights are unchanged.[/yellow]")
+    if json_out:
+        path = Path(json_out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(result.to_dict(), indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        console.print(f"[green]Wrote proposed weights to {path}[/green]")
 
 
 @cli.group()
