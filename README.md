@@ -154,10 +154,13 @@ python -m src.cli --help
 | `dashboard` | Launch the Textual TUI. |
 | `dashboard-data` | Export dashboard-ready JSON from local state. |
 | `analyze` | Inspect one ticker/model-probability opportunity. |
+| `collect-snapshots` | Persist market quotes/orderbook snapshots into local SQLite. |
 | `opportunities` | Rank offline candidates by edge, liquidity, risk, and confidence. |
+| `strategies` | List, inspect, enable/disable, and dry-run registered strategies. |
 | `trade` | Run the weather strategy loop (dry-run by default). |
 | `positions` / `portfolio` | Inspect local SQLite state. |
 | `backtest` | Replay a CSV trade ledger and optionally write dashboard JSON. |
+| `calibration-score` | Score forecast calibration from files or persisted forecasts. |
 | `experiments` | Create, list, show, compare, and attach artifacts to experiment records. |
 | `paper` | Record local no-account paper orders, positions, and settlements. |
 | `weather` | Fetch and blend weather forecast inputs. |
@@ -194,7 +197,7 @@ Launch the Textual dashboard from the CLI:
 marketedge dashboard
 ```
 
-It shows local portfolio state, open positions, recent signals, scanner controls, risk metrics, and settings. The scanner/settings controls are still a scaffold; the durable research workflows currently live in the CLI and local data files.
+It shows local portfolio state, open positions, recent signals, scanner controls, risk metrics, and settings. Scanner controls run a bounded local scan over collected SQLite market snapshots by default, settings are validated and staged at runtime, and no live orders are placed from the TUI.
 
 ---
 
@@ -287,10 +290,25 @@ The web dashboard will use `web/data/dashboard.json` when present and fall back 
 marketedge analyze \
   --ticker RAIN-NYC-2026-05-15 \
   --model-prob 0.65 \
-  --side yes
+  --side yes \
+  --yes-bid 39 \
+  --yes-ask 41 \
+  --resolution-date 2026-06-18T20:00:00Z
 ```
 
-The current `analyze` command uses placeholder bid/ask values. Use `opportunities` for batch offline ranking from explicit candidate data.
+`analyze` never uses placeholder quotes. Offline/no-account analysis requires explicit quote inputs (`--yes-bid/--yes-ask`, `--no-bid/--no-ask`, or generic `--bid/--ask`). API-backed users may pass `--fetch` to retrieve the current market and orderbook for a ticker when Kalshi credentials are configured.
+
+### Collect Market Snapshots
+
+```bash
+marketedge collect-snapshots \
+  --ticker HIGHNY-26JUN18-B88.5 \
+  --iterations 1
+
+marketedge collect-snapshots --weather-scan --limit 50 --iterations 3 --interval 30
+```
+
+Snapshots capture ticker/title metadata, YES/NO quotes, last price, volume, open interest, timestamp, and source into SQLite. `dashboard-data` exports the latest collected snapshots for the web dashboard.
 
 ### Rank Opportunity Candidates
 
@@ -344,6 +362,15 @@ Forecast CSV/JSONL rows require `timestamp`, `ticker`, and `model_probability`.
 Optional `strategy`, `market_category`, and `event_type` fields produce grouped
 calibration summaries.
 
+Use `calibration-score` to score file-based forecasts or, when `--forecasts` is
+omitted, forecasts persisted by strategy runs:
+
+```bash
+marketedge calibration-score \
+  --settlements data/settlements.csv \
+  --json-out web/data/calibration-summary.json
+```
+
 ### Apply Execution Realism
 
 ```python
@@ -379,6 +406,21 @@ marketedge experiments add-artifact <run-id> path/to/artifact.json
 
 Experiment records are append-only JSONL in `data/experiments.jsonl` by default.
 Comparison loads referenced JSON artifacts when present and reports metric deltas such as return, net P&L, Sharpe-like score, drawdown, and average edge.
+
+### Manage Strategies
+
+```bash
+marketedge strategies list
+marketedge strategies inspect weather
+marketedge strategies disable relative-value
+marketedge strategies enable relative-value
+marketedge strategies run weather --json-out web/data/weather-run.json
+```
+
+Built-in strategies are registered by stable IDs: `weather`, `relative-value`,
+`catalyst-calendar`, `calibration-ensemble`, and `liquidity-overlay`. Runs are
+dry-run/local by default and persist a SQLite run record with status, warnings,
+signal count, artifact paths, and explanation payload.
 
 ### Record Paper Trades
 
@@ -430,19 +472,13 @@ The codebase also includes max position percentage, max correlated exposure, spr
 
 ## 🛡️ Safety First
 
-Before live use, Market Edge still needs durable production controls:
+Market Edge now includes local production-control primitives: explicit live-trading enablement, global kill switch, pre-order risk decisions, size/correlation/daily-loss/notional checks, strategy run records, and audit events for signals, refusals, intents, risk decisions, order attempts, fills, and rejections.
 
-- Explicit live-trading enablement.
-- Global kill switch.
-- Pre-order risk limit enforcement.
-- Daily loss and notional exposure limits.
-- Strategy and execution integration that writes audit events for every signal, refusal, intent, and result.
-
-Local readiness controls already include remote CI, operator diagnostics, configurable SQLite storage, Alembic schema initialization, an application schema ledger, and an audit event table with CLI inspection/append commands.
+Local readiness controls also include remote CI, operator diagnostics, configurable SQLite storage, Alembic schema initialization, an application schema ledger, and an audit event table with CLI inspection/append commands.
 
 The live-trading path **fails closed by default**. Running `trade --live` requires the global kill switch disengaged, `MARKETEDGE_ALLOW_LIVE=true`, both Kalshi credentials present, and an explicit `--confirm-live` confirmation; any missing gate exits before a live client is created. Dry run is always the default.
 
-Use local, no-account, analysis, backtest, and dry-run workflows. Do not treat this repository as production live-trading software until live-trading safety gates, kill switches, pre-order risk checks, audit-trail integrations, and operator confirmations are fully merged and verified.
+Use local, no-account, analysis, backtest, and dry-run workflows first. Do not treat this repository as production live-trading software without operator review of configured limits, audit storage, exchange credentials, and live gate settings.
 
 Planned production-readiness and research enhancements are tracked publicly on the [GitHub issues](https://github.com/EricGrill/marketedge/issues) board.
 
