@@ -8,15 +8,25 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from statistics import mean, pstdev
-from typing import Any, Dict, Iterable, List
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List
 
 from src.utils import parse_timestamp
+
+if TYPE_CHECKING:
+    from src.settlements import SettlementResolver
 
 
 def _json_safe_float(value: float) -> float | None:
     if math.isfinite(value):
         return value
     return None
+
+
+def _coerce_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass(frozen=True)
@@ -327,3 +337,61 @@ def load_trades_csv(path: str | Path) -> List[BacktestTradeInput]:
 
 def _parse_timestamp(value: str) -> datetime:
     return parse_timestamp(value)
+
+
+def trades_from_forecasts(
+    forecasts: Iterable[Any],
+    resolver: SettlementResolver,
+    *,
+    quantity: int = 1,
+) -> List[BacktestTradeInput]:
+    """Synthesize backtest trades from persisted forecasts + settlement outcomes.
+
+    Closes the research loop: each stored forecast is treated as a directional
+    call (YES when blended probability >= 0.5, else NO), entered at the recorded
+    market price and exited at the realized settlement price. Forecasts without a
+    settled ticker, market price, or blended probability are skipped.
+
+    The forecast objects are duck-typed (any object exposing ``market_ticker``,
+    ``blended_probability``, ``market_price`` and a timestamp) so this stays
+    decoupled from the persistence layer.
+    """
+    settled = set(resolver.tickers)
+    trades: List[BacktestTradeInput] = []
+    for forecast in forecasts:
+        ticker = getattr(forecast, "market_ticker", None)
+        if not ticker or ticker not in settled:
+            continue
+        blended = _coerce_float(getattr(forecast, "blended_probability", None))
+        market_price = _coerce_float(getattr(forecast, "market_price", None))
+        if blended is None or market_price is None:
+            continue
+
+        outcome = resolver.require_outcome(ticker)
+        side = "yes" if blended >= 0.5 else "no"
+        entry_price = market_price if side == "yes" else 100.0 - market_price
+        exit_price = outcome.settlement_price_for(side)
+        model_probability = blended if side == "yes" else 1.0 - blended
+        timestamp = (
+            getattr(forecast, "market_timestamp", None)
+            or getattr(forecast, "forecast_cycle", None)
+            or getattr(forecast, "created_at", None)
+        )
+        if timestamp is None:
+            continue
+        confidence = _coerce_float(getattr(forecast, "confidence", None)) or 1.0
+
+        trades.append(
+            BacktestTradeInput(
+                timestamp=timestamp,
+                ticker=str(ticker),
+                side=side,
+                entry_price=entry_price,
+                exit_price=exit_price,
+                quantity=quantity,
+                model_probability=model_probability,
+                confidence=confidence,
+                metadata={"source": "persisted_forecast"},
+            )
+        )
+    return trades

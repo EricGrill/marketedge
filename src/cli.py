@@ -17,7 +17,7 @@ from rich.text import Text
 from src.config import kalshi_config, trading_config, weather_config
 from src.state import SCHEMA_VERSION, StateManager
 from src.formulas import QuantEngine
-from src.backtesting import BacktestEngine, load_trades_csv
+from src.backtesting import BacktestEngine, load_trades_csv, trades_from_forecasts
 from src.experiments import (
     ExperimentRegistry,
     ExperimentRegistryError,
@@ -841,8 +841,56 @@ def backtest(path, bankroll, json_out):
     """Run an offline backtest from a CSV trade ledger."""
     trades = load_trades_csv(path)
     summary = BacktestEngine().run(trades, initial_bankroll=bankroll)
+    _render_backtest_summary(summary, f"Backtest: {path}", json_out)
 
-    table = Table(title=f"Backtest: {path}")
+
+@cli.command("backtest-history")
+@click.option(
+    "--settlements", required=True, type=click.Path(exists=True, dir_okay=False)
+)
+@click.option(
+    "--format",
+    "file_format",
+    type=click.Choice(["csv", "jsonl"]),
+    default="csv",
+    show_default=True,
+)
+@click.option(
+    "--db-path", default=None, help="SQLite database path for stored forecasts."
+)
+@click.option(
+    "--bankroll",
+    type=float,
+    default=trading_config.initial_bankroll,
+    show_default=True,
+    help="Initial bankroll for replay metrics.",
+)
+@click.option(
+    "--json-out",
+    type=click.Path(dir_okay=False, writable=True),
+    help="Write a dashboard-ready JSON summary to this path.",
+)
+def backtest_history(settlements, file_format, db_path, bankroll, json_out):
+    """Backtest the model's stored forecast calls against settled outcomes."""
+    resolver = (
+        load_settlements_jsonl(settlements)
+        if file_format == "jsonl"
+        else load_settlements_csv(settlements)
+    )
+    forecasts = asyncio.run(StateManager(db_path).get_weather_forecasts())
+    trades = trades_from_forecasts(forecasts, resolver)
+    if not trades:
+        console.print(
+            "[yellow]No settled forecasts found to replay from state.[/yellow]"
+        )
+        return
+    summary = BacktestEngine().run(trades, initial_bankroll=bankroll)
+    _render_backtest_summary(summary, "Backtest: persisted forecast history", json_out)
+
+
+def _render_backtest_summary(summary, title, json_out):
+    """Render a backtest summary table and optionally write its JSON payload."""
+    table = Table(title=title)
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="green")
 
