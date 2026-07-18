@@ -12,7 +12,7 @@
 #     python -m pip freeze | grep -viE '^-e |marketedge' > constraints.txt
 #
 # Generated against Python 3.12.
-alembic==1.18.4
+alembic==1.18.5
 annotated-types==0.7.0
 anyio==4.14.0
 black==26.5.1
