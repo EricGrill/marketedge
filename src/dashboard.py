@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from src.formulas import QuantEngine, REGION_BY_CITY
 from src.paper import PaperTradingLedger
@@ -22,15 +22,17 @@ async def build_dashboard_payload(
     positions = await state.get_open_positions()
     position_payloads = [_position_payload(position) for position in positions]
     snapshots = await state.get_latest_market_snapshots()
+    strategy_runs = await state.list_strategy_runs(limit=25)
 
     payload: Dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "account": _portfolio_payload(portfolio),
         "markets": [_market_payload(snapshot) for snapshot in snapshots],
         "positions": position_payloads,
+        "strategy_runs": [_strategy_run_payload(run) for run in strategy_runs],
         "risk": QuantEngine().summarize_correlated_risk(
             position_payloads,
-            bankroll=portfolio.bankroll if portfolio else 0,
+            bankroll=cast(float, portfolio.bankroll) if portfolio else 0.0,
         ),
     }
 
@@ -72,11 +74,15 @@ def _portfolio_payload(portfolio) -> Dict[str, Any]:
 
 
 def _market_payload(snapshot) -> Dict[str, Any]:
+    metadata = _json_dict(snapshot.event_metadata_json)
     return {
         "id": snapshot.ticker,
         "ticker": snapshot.ticker,
-        "title": snapshot.ticker,
-        "city": _city_from_ticker(snapshot.ticker),
+        "title": snapshot.title or snapshot.ticker,
+        "city": metadata.get("location") or _city_from_ticker(snapshot.ticker),
+        "category": metadata.get("category", "unknown"),
+        "event_type": metadata.get("event_type", "unknown"),
+        "event_metadata": metadata,
         "bracket": snapshot.ticker.split("-")[-1],
         "last": snapshot.last_price,
         "bid": snapshot.bid,
@@ -88,7 +94,7 @@ def _market_payload(snapshot) -> Dict[str, Any]:
         "volume": snapshot.volume_24h,
         "open_interest": snapshot.open_interest,
         "timestamp": snapshot.timestamp.isoformat() if snapshot.timestamp else None,
-        "source": "state",
+        "source": snapshot.source or "state",
     }
 
 
@@ -133,3 +139,37 @@ def _city_from_ticker(ticker: str) -> str:
 def _region_from_location(location: str | None) -> str:
     city = (location or "").upper()
     return REGION_BY_CITY.get(city, "unknown")
+
+
+def _strategy_run_payload(run) -> Dict[str, Any]:
+    return {
+        "run_id": run.run_id,
+        "strategy_id": run.strategy_id,
+        "status": run.status,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "warnings": _json_list(run.warnings_json),
+        "signal_count": run.signal_count,
+        "artifact_paths": _json_list(run.artifact_paths_json),
+        "explanation": _json_dict(run.explanation_json),
+    }
+
+
+def _json_dict(value: str | None) -> Dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _json_list(value: str | None) -> list:
+    if not value:
+        return []
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    return payload if isinstance(payload, list) else []

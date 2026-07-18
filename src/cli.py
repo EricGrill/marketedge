@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 import click
@@ -16,7 +17,7 @@ from rich.text import Text
 from src.config import kalshi_config, trading_config, weather_config
 from src.state import SCHEMA_VERSION, StateManager
 from src.formulas import QuantEngine
-from src.backtesting import BacktestEngine, load_trades_csv
+from src.backtesting import BacktestEngine, load_trades_csv, trades_from_forecasts
 from src.experiments import (
     ExperimentRegistry,
     ExperimentRegistryError,
@@ -24,8 +25,19 @@ from src.experiments import (
 )
 from src.doctor import has_failures, has_warnings, run_health_checks
 from src.dashboard import build_dashboard_payload, write_dashboard_payload
+from src.data_collection import collect_market_snapshots, fetch_market_quotes
+from src.calibration import (
+    CalibrationScorer,
+    export_calibration_summary,
+    fit_persisted_weights,
+    load_forecasts_csv,
+    load_forecasts_jsonl,
+    score_persisted_forecasts,
+)
 from src.opportunities import OpportunityScanner, load_candidates
 from src.paper import PaperLedgerError, PaperTradingLedger
+from src.settlements import load_settlements_csv, load_settlements_jsonl
+from src.strategy_registry import StrategyConfigStore, StrategyManager, StrategyRegistry
 from src.api.client import KalshiRestClient
 from src.strategies.weather import WeatherTradingStrategy
 from src.tui.app import KalshiQuantApp
@@ -35,6 +47,7 @@ from src.safety import (
     KILL_SWITCH_ENV,
     evaluate_live_trading_gate,
 )
+from src.utils import parse_timestamp, utcnow
 
 console = Console()
 
@@ -51,7 +64,17 @@ def cli(ctx, env):
         load_dotenv(env)
     ctx.ensure_object(dict)
     ctx.obj["quant"] = QuantEngine()
-    state_commands = {"dashboard", "analyze", "trade", "positions", "portfolio"}
+    state_commands = {
+        "dashboard",
+        "analyze",
+        "trade",
+        "positions",
+        "portfolio",
+        "dashboard-data",
+        "collect-snapshots",
+        "calibration-score",
+        "strategies",
+    }
     if ctx.invoked_subcommand in state_commands:
         ctx.obj["state"] = StateManager()
 
@@ -167,20 +190,77 @@ def db_audit(db_path, limit):
     "--model-prob", type=float, required=True, help="Your model probability (0-1)"
 )
 @click.option("--side", type=click.Choice(["yes", "no"]), default="yes")
+@click.option("--bid", type=float, default=None, help="Generic bid quote in cents.")
+@click.option("--ask", type=float, default=None, help="Generic ask quote in cents.")
+@click.option("--yes-bid", type=float, default=None, help="YES bid quote in cents.")
+@click.option("--yes-ask", type=float, default=None, help="YES ask quote in cents.")
+@click.option("--no-bid", type=float, default=None, help="NO bid quote in cents.")
+@click.option("--no-ask", type=float, default=None, help="NO ask quote in cents.")
+@click.option(
+    "--resolution-date",
+    default=None,
+    help="ISO-8601 market resolution date. Used for annualized yield.",
+)
+@click.option(
+    "--days-to-resolution",
+    type=float,
+    default=7.0,
+    show_default=True,
+    help="Fallback days to resolution when no date is provided or fetched.",
+)
+@click.option(
+    "--fetch",
+    is_flag=True,
+    help="Fetch current market/orderbook quotes by ticker using Kalshi credentials.",
+)
 @click.pass_context
-def analyze(ctx, ticker, model_prob, side):
+def analyze(
+    ctx,
+    ticker,
+    model_prob,
+    side,
+    bid,
+    ask,
+    yes_bid,
+    yes_ask,
+    no_bid,
+    no_ask,
+    resolution_date,
+    days_to_resolution,
+    fetch,
+):
     """Analyze a specific market opportunity."""
     state = ctx.obj["state"]
     quant = ctx.obj["quant"]
 
-    market_bid = 25.0
-    market_ask = 30.0
+    fetched_market = {}
+    if fetch:
+        if not kalshi_config.api_key or not kalshi_config.api_secret:
+            raise click.ClickException(
+                "--fetch requires KALSHI_API_KEY and KALSHI_API_SECRET"
+            )
+        fetched_market = asyncio.run(fetch_market_quotes(KalshiRestClient(), ticker))
+        yes_bid = yes_bid if yes_bid is not None else fetched_market.get("yes_bid")
+        yes_ask = yes_ask if yes_ask is not None else fetched_market.get("yes_ask")
+        no_bid = no_bid if no_bid is not None else fetched_market.get("no_bid")
+        no_ask = no_ask if no_ask is not None else fetched_market.get("no_ask")
+        bid = bid if bid is not None else fetched_market.get("bid")
+        ask = ask if ask is not None else fetched_market.get("ask")
 
-    from datetime import timedelta
-
-    from src.utils import utcnow
-
-    resolution_date = utcnow() + timedelta(days=7)
+    market_bid, market_ask = _quote_pair_for_side(
+        side=side,
+        bid=bid,
+        ask=ask,
+        yes_bid=yes_bid,
+        yes_ask=yes_ask,
+        no_bid=no_bid,
+        no_ask=no_ask,
+    )
+    parsed_resolution = _resolution_for_analyze(
+        resolution_date=resolution_date,
+        days_to_resolution=days_to_resolution,
+        fetched_market=fetched_market,
+    )
 
     portfolio = asyncio.run(state.get_portfolio_state())
     bankroll = portfolio.bankroll if portfolio else trading_config.initial_bankroll
@@ -189,7 +269,7 @@ def analyze(ctx, ticker, model_prob, side):
         model_prob=model_prob,
         market_bid=market_bid,
         market_ask=market_ask,
-        resolution_date=resolution_date,
+        resolution_date=parsed_resolution,
         bankroll=bankroll,
         ensemble_spread=0.1,
         side=side,
@@ -202,6 +282,7 @@ def analyze(ctx, ticker, model_prob, side):
     edge = screen["edge"]
     table.add_row("Model Probability", f"{edge.model_probability:.2%}")
     table.add_row("Market Probability", f"{edge.market_probability:.2%}")
+    table.add_row("Bid / Ask", f"{market_bid:.1f}¢ / {market_ask:.1f}¢")
     table.add_row("Raw Edge", f"{edge.raw_edge:.2%}")
     table.add_row("Fee-Adjusted Edge", f"{edge.fee_adjusted_edge:.2%}")
     table.add_row("Expected Value", f"${edge.expected_value:.4f}")
@@ -231,6 +312,277 @@ def analyze(ctx, ticker, model_prob, side):
         console.print(
             Panel("[bold red]RECOMMENDATION: PASS[/bold red]", border_style="red")
         )
+
+
+@cli.command()
+@click.option("--ticker", multiple=True, help="Ticker to collect; repeatable.")
+@click.option("--weather-scan", is_flag=True, help="Scan open weather markets.")
+@click.option(
+    "--limit", default=50, show_default=True, help="Maximum markets per pass."
+)
+@click.option(
+    "--interval",
+    type=float,
+    default=0.0,
+    show_default=True,
+    help="Seconds between polling passes.",
+)
+@click.option(
+    "--iterations",
+    type=int,
+    default=1,
+    show_default=True,
+    help="Number of bounded polling passes.",
+)
+@click.option("--db-path", default=None, help="SQLite database path to write.")
+def collect_snapshots(ticker, weather_scan, limit, interval, iterations, db_path):
+    """Collect durable market snapshots into local SQLite state."""
+    if not ticker and not weather_scan:
+        raise click.ClickException("provide --ticker or --weather-scan")
+    state = StateManager(db_path)
+    result = asyncio.run(
+        collect_market_snapshots(
+            state,
+            KalshiRestClient(),
+            tickers=ticker,
+            weather_scan=weather_scan,
+            limit=limit,
+            interval_seconds=interval,
+            iterations=iterations,
+        )
+    )
+    console.print(
+        f"[green]Collected {result.written}/{result.attempted} market snapshots[/green]"
+    )
+    for error in result.errors:
+        console.print(f"[yellow]{error}[/yellow]")
+
+
+@cli.command("calibration-score")
+@click.option("--forecasts", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--settlements", required=True, type=click.Path(exists=True, dir_okay=False)
+)
+@click.option(
+    "--format",
+    "file_format",
+    type=click.Choice(["csv", "jsonl"]),
+    default="csv",
+    show_default=True,
+)
+@click.option(
+    "--db-path", default=None, help="SQLite database path for stored forecasts."
+)
+@click.option("--json-out", type=click.Path(dir_okay=False, writable=True))
+def calibration_score(forecasts, settlements, file_format, db_path, json_out):
+    """Score forecast calibration from files or persisted forecast state."""
+    resolver = (
+        load_settlements_jsonl(settlements)
+        if file_format == "jsonl"
+        else load_settlements_csv(settlements)
+    )
+    if forecasts:
+        forecast_rows = (
+            load_forecasts_jsonl(forecasts)
+            if file_format == "jsonl"
+            else load_forecasts_csv(forecasts)
+        )
+        summary = CalibrationScorer().score(forecast_rows, resolver)
+    else:
+        summary = asyncio.run(
+            score_persisted_forecasts(StateManager(db_path), resolver)
+        )
+
+    table = Table(title="Calibration")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("Forecasts", str(summary.total_forecasts))
+    table.add_row("Brier", f"{summary.brier_score:.4f}")
+    table.add_row("Log Loss", f"{summary.log_loss:.4f}")
+    table.add_row("Observed Rate", f"{summary.observed_rate:.2%}")
+    table.add_row("Groups", str(len(summary.groups)))
+    console.print(table)
+    if json_out:
+        output = export_calibration_summary(summary, json_out)
+        console.print(f"[green]Wrote calibration summary to {output}[/green]")
+
+
+@cli.command("calibration-fit-weights")
+@click.option(
+    "--settlements", required=True, type=click.Path(exists=True, dir_okay=False)
+)
+@click.option(
+    "--format",
+    "file_format",
+    type=click.Choice(["csv", "jsonl"]),
+    default="csv",
+    show_default=True,
+)
+@click.option(
+    "--db-path", default=None, help="SQLite database path for stored forecasts."
+)
+@click.option("--json-out", type=click.Path(dir_okay=False, writable=True))
+def calibration_fit_weights(settlements, file_format, db_path, json_out):
+    """Propose (dry-run) weather-blend weights learned from settled forecasts."""
+    resolver = (
+        load_settlements_jsonl(settlements)
+        if file_format == "jsonl"
+        else load_settlements_csv(settlements)
+    )
+    result = asyncio.run(fit_persisted_weights(StateManager(db_path), resolver))
+
+    if result.sample_count == 0:
+        console.print(
+            "[yellow]No settled forecasts to fit against; weights unchanged.[/yellow]"
+        )
+        return
+
+    table = Table(title="Proposed blend weights (dry run)")
+    table.add_column("Source", style="cyan")
+    table.add_column("Current", justify="right")
+    table.add_column("Fitted", justify="right", style="green")
+    for name in result.source_names:
+        table.add_row(
+            name,
+            f"{result.baseline_weights[name]:.3f}",
+            f"{result.fitted_weights[name]:.3f}",
+        )
+    console.print(table)
+    console.print(
+        f"Brier: {result.baseline_brier:.4f} (current) -> "
+        f"{result.fitted_brier:.4f} (fitted) over {result.sample_count} forecasts"
+    )
+    if result.improved:
+        console.print("[green]Fitted weights improve calibration.[/green]")
+    else:
+        console.print("[yellow]No improvement over current weights.[/yellow]")
+    console.print("[yellow]Dry run — weather_config weights are unchanged.[/yellow]")
+    if json_out:
+        path = Path(json_out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(result.to_dict(), indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        console.print(f"[green]Wrote proposed weights to {path}[/green]")
+
+
+@cli.group()
+def strategies():
+    """List, configure, and run registered strategies."""
+
+
+@strategies.command("list")
+@click.option(
+    "--config", "config_path", default="data/strategy-config.json", show_default=True
+)
+@click.pass_context
+def strategies_list(ctx, config_path):
+    """List registered strategies and last-run status."""
+    state = ctx.obj["state"]
+    statuses = asyncio.run(
+        StrategyManager(
+            state,
+            registry=StrategyRegistry(),
+            config_store=StrategyConfigStore(config_path),
+        ).list_status()
+    )
+    table = Table(title="Strategies")
+    table.add_column("ID", style="cyan")
+    table.add_column("Name")
+    table.add_column("Enabled")
+    table.add_column("Last Status")
+    table.add_column("Signals")
+    for item in statuses:
+        last_run = item["last_run"] or {}
+        table.add_row(
+            item["strategy_id"],
+            item["display_name"],
+            "yes" if item["enabled"] else "no",
+            last_run.get("status", ""),
+            str(last_run.get("signal_count", "")),
+        )
+    console.print(table)
+
+
+@strategies.command("inspect")
+@click.argument("strategy_id")
+@click.option(
+    "--config", "config_path", default="data/strategy-config.json", show_default=True
+)
+def strategies_inspect(strategy_id, config_path):
+    """Show one strategy metadata/config as JSON."""
+    registry = StrategyRegistry()
+    strategy = registry.get(strategy_id)
+    config = StrategyConfigStore(config_path).get_strategy_config(
+        strategy_id, strategy.default_config()
+    )
+    console.print_json(
+        data={
+            **strategy.metadata.to_dict(),
+            "default_config": strategy.default_config(),
+            "config": config,
+        }
+    )
+
+
+@strategies.command("enable")
+@click.argument("strategy_id")
+@click.option(
+    "--config", "config_path", default="data/strategy-config.json", show_default=True
+)
+def strategies_enable(strategy_id, config_path):
+    """Enable a registered strategy."""
+    StrategyRegistry().get(strategy_id)
+    StrategyConfigStore(config_path).set_enabled(strategy_id, True)
+    console.print(f"[green]Enabled {strategy_id}[/green]")
+
+
+@strategies.command("disable")
+@click.argument("strategy_id")
+@click.option(
+    "--config", "config_path", default="data/strategy-config.json", show_default=True
+)
+def strategies_disable(strategy_id, config_path):
+    """Disable a registered strategy."""
+    StrategyRegistry().get(strategy_id)
+    StrategyConfigStore(config_path).set_enabled(strategy_id, False)
+    console.print(f"[green]Disabled {strategy_id}[/green]")
+
+
+@strategies.command("run")
+@click.argument("strategy_id")
+@click.option(
+    "--config", "config_path", default="data/strategy-config.json", show_default=True
+)
+@click.option(
+    "--live",
+    is_flag=True,
+    help="Mark the run as live-intended; no orders are placed here.",
+)
+@click.option("--json-out", type=click.Path(dir_okay=False, writable=True))
+@click.pass_context
+def strategies_run(ctx, strategy_id, config_path, live, json_out):
+    """Run a registered strategy through the local manager."""
+    state = ctx.obj["state"]
+    result = asyncio.run(
+        StrategyManager(
+            state,
+            registry=StrategyRegistry(),
+            config_store=StrategyConfigStore(config_path),
+        ).run(strategy_id, dry_run=not live)
+    )
+    console.print(
+        f"[green]Ran {strategy_id}: {result['status']} "
+        f"({len(result['opportunities'])} signals)[/green]"
+    )
+    if json_out:
+        output_path = Path(json_out)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8") as handle:
+            json.dump(result, handle, indent=2, allow_nan=False)
+            handle.write("\n")
+        console.print(f"[green]Wrote strategy run to {output_path}[/green]")
 
 
 @cli.command()
@@ -269,7 +621,12 @@ def trade(ctx, live, interval, confirm_live):
         sys.exit(1)
 
     client = KalshiRestClient()
-    strategy = WeatherTradingStrategy(state, client)
+    strategy = WeatherTradingStrategy(
+        state,
+        client,
+        use_sample_markets_if_empty=not live,
+        execute_orders=live,
+    )
 
     mode = "LIVE" if live else "DRY RUN"
     console.print(
@@ -279,11 +636,16 @@ def trade(ctx, live, interval, confirm_live):
         )
     )
 
+    async def run_strategy():
+        try:
+            await strategy.run_continuous(interval)
+        finally:
+            await strategy.stop()
+
     try:
-        asyncio.run(strategy.run_continuous(interval))
+        asyncio.run(run_strategy())
     except KeyboardInterrupt:
         console.print("[yellow]Shutting down...[/yellow]")
-        asyncio.run(strategy.stop())
 
 
 @cli.command()
@@ -479,8 +841,56 @@ def backtest(path, bankroll, json_out):
     """Run an offline backtest from a CSV trade ledger."""
     trades = load_trades_csv(path)
     summary = BacktestEngine().run(trades, initial_bankroll=bankroll)
+    _render_backtest_summary(summary, f"Backtest: {path}", json_out)
 
-    table = Table(title=f"Backtest: {path}")
+
+@cli.command("backtest-history")
+@click.option(
+    "--settlements", required=True, type=click.Path(exists=True, dir_okay=False)
+)
+@click.option(
+    "--format",
+    "file_format",
+    type=click.Choice(["csv", "jsonl"]),
+    default="csv",
+    show_default=True,
+)
+@click.option(
+    "--db-path", default=None, help="SQLite database path for stored forecasts."
+)
+@click.option(
+    "--bankroll",
+    type=float,
+    default=trading_config.initial_bankroll,
+    show_default=True,
+    help="Initial bankroll for replay metrics.",
+)
+@click.option(
+    "--json-out",
+    type=click.Path(dir_okay=False, writable=True),
+    help="Write a dashboard-ready JSON summary to this path.",
+)
+def backtest_history(settlements, file_format, db_path, bankroll, json_out):
+    """Backtest the model's stored forecast calls against settled outcomes."""
+    resolver = (
+        load_settlements_jsonl(settlements)
+        if file_format == "jsonl"
+        else load_settlements_csv(settlements)
+    )
+    forecasts = asyncio.run(StateManager(db_path).get_weather_forecasts())
+    trades = trades_from_forecasts(forecasts, resolver)
+    if not trades:
+        console.print(
+            "[yellow]No settled forecasts found to replay from state.[/yellow]"
+        )
+        return
+    summary = BacktestEngine().run(trades, initial_bankroll=bankroll)
+    _render_backtest_summary(summary, "Backtest: persisted forecast history", json_out)
+
+
+def _render_backtest_summary(summary, title, json_out):
+    """Render a backtest summary table and optionally write its JSON payload."""
+    table = Table(title=title)
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="green")
 
@@ -825,6 +1235,53 @@ def _format_optional_ratio(value):
     if isinstance(value, (int, float)):
         return f"{value:.2f}"
     return "N/A"
+
+
+def _quote_pair_for_side(
+    *,
+    side: str,
+    bid: float | None,
+    ask: float | None,
+    yes_bid: float | None,
+    yes_ask: float | None,
+    no_bid: float | None,
+    no_ask: float | None,
+) -> tuple[float, float]:
+    if side == "yes":
+        market_bid = yes_bid if yes_bid is not None else bid
+        market_ask = yes_ask if yes_ask is not None else ask
+        label = "YES"
+    else:
+        market_bid = no_bid if no_bid is not None else bid
+        market_ask = no_ask if no_ask is not None else ask
+        label = "NO"
+    if market_bid is None or market_ask is None:
+        raise click.ClickException(
+            f"missing {label} quote inputs; provide --{side}-bid/--{side}-ask, "
+            "--bid/--ask, or use --fetch with credentials"
+        )
+    if not 0 <= market_bid <= 100 or not 0 <= market_ask <= 100:
+        raise click.ClickException("quotes must be between 0 and 100 cents")
+    if market_bid > market_ask:
+        raise click.ClickException("bid cannot be greater than ask")
+    return float(market_bid), float(market_ask)
+
+
+def _resolution_for_analyze(
+    *,
+    resolution_date: str | None,
+    days_to_resolution: float,
+    fetched_market: dict,
+):
+    if resolution_date:
+        return parse_timestamp(resolution_date)
+    for key in ("resolution_date", "close_date", "expiration_date", "settle_time"):
+        value = fetched_market.get(key)
+        if value:
+            return parse_timestamp(str(value))
+    if days_to_resolution <= 0:
+        raise click.ClickException("--days-to-resolution must be positive")
+    return utcnow() + timedelta(days=days_to_resolution)
 
 
 if __name__ == "__main__":

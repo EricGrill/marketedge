@@ -9,9 +9,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from statistics import mean
-from typing import Any, Dict, Iterable, List, Mapping, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from src.settlements import SettlementResolver
+from src.state import StateManager
 
 
 @dataclass(frozen=True)
@@ -272,6 +273,74 @@ def load_forecasts_jsonl(path: str | Path) -> List[ForecastInput]:
     return forecasts
 
 
+async def load_persisted_forecasts(
+    state: StateManager,
+    *,
+    strategy: str | None = None,
+    market_category: str | None = None,
+    limit: int = 1000,
+) -> List[ForecastInput]:
+    """Load forecasts persisted in SQLite into calibration input rows."""
+    rows = await state.get_weather_forecasts(
+        strategy=strategy,
+        market_category=market_category,
+        limit=limit,
+    )
+    forecasts: List[ForecastInput] = []
+    for row in rows:
+        forecasts.append(
+            ForecastInput(
+                timestamp=row.created_at,
+                ticker=row.market_ticker,
+                model_probability=row.blended_probability,
+                strategy=row.strategy or "weather",
+                market_category=row.market_category or "weather",
+                event_type=row.event_type or "unknown",
+                metadata={
+                    "forecast_id": row.id,
+                    "location": row.location,
+                    "forecast_cycle": (
+                        row.forecast_cycle.isoformat() if row.forecast_cycle else None
+                    ),
+                    "confidence": row.confidence,
+                    "model_version": row.model_version,
+                    "source_metadata": _json_dict(row.source_metadata_json),
+                    "feature_metadata": _json_dict(row.feature_metadata_json),
+                },
+            )
+        )
+    return forecasts
+
+
+async def score_persisted_forecasts(
+    state: StateManager,
+    settlements: SettlementResolver,
+    *,
+    strategy: str | None = None,
+    market_category: str | None = None,
+    limit: int = 1000,
+) -> CalibrationSummary:
+    """Join stored forecasts to settlement outcomes and score calibration."""
+    forecasts = await load_persisted_forecasts(
+        state,
+        strategy=strategy,
+        market_category=market_category,
+        limit=limit,
+    )
+    return CalibrationScorer().score(forecasts, settlements)
+
+
+def export_calibration_summary(summary: CalibrationSummary, path: str | Path) -> Path:
+    """Write dashboard-ready calibration JSON."""
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(summary.to_dict(), indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return output
+
+
 def _forecast_from_mapping(row: Mapping[str, Any]) -> ForecastInput:
     known_fields = {
         "timestamp",
@@ -290,3 +359,217 @@ def _forecast_from_mapping(row: Mapping[str, Any]) -> ForecastInput:
         event_type=str(row.get("event_type") or "unknown"),
         metadata={key: value for key, value in row.items() if key not in known_fields},
     )
+
+
+def _json_dict(value: str | None) -> Dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+# ========== ENSEMBLE WEIGHT FITTING ==========
+#
+# The weather model blend weights (ecmwf/gefs/analog/microclimate/nws_delta) are
+# configured by hand and forced to sum to 1.0. This layer *learns* them from
+# realized outcomes: given per-source probabilities paired with settled results,
+# fit the convex combination of sources that minimizes the Brier score. The
+# result reports both the fitted weights and the improvement over the current
+# baseline so an operator can review a proposed (dry-run) weight update.
+
+# Maps blend source name -> the WeatherConfig attribute holding its weight.
+SOURCE_WEIGHT_FIELDS = {
+    "ecmwf": "ecmwf_weight",
+    "gefs": "gefs_weight",
+    "analog": "analog_weight",
+    "microclimate": "microclimate_weight",
+    "nws_delta": "nws_delta_weight",
+}
+
+# One training row: per-source probabilities (0-1) and the settled outcome (0/1).
+WeightSample = Tuple[Mapping[str, float], int]
+
+
+@dataclass(frozen=True)
+class WeightFitResult:
+    """Proposed ensemble weights fitted to realized outcomes."""
+
+    source_names: List[str]
+    fitted_weights: Dict[str, float]
+    baseline_weights: Dict[str, float]
+    fitted_brier: float
+    baseline_brier: float
+    sample_count: int
+
+    @property
+    def improved(self) -> bool:
+        """True when the fitted weights beat the baseline by a meaningful margin."""
+        return self.fitted_brier < self.baseline_brier - 1e-9
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "source_names": list(self.source_names),
+            "fitted_weights": dict(self.fitted_weights),
+            "baseline_weights": dict(self.baseline_weights),
+            "fitted_brier": self.fitted_brier,
+            "baseline_brier": self.baseline_brier,
+            "sample_count": self.sample_count,
+            "improved": self.improved,
+        }
+
+
+def weather_baseline_weights() -> Dict[str, float]:
+    """Current configured blend weights, keyed by blend source name."""
+    from src.config import weather_config
+
+    return {
+        name: float(getattr(weather_config, attr))
+        for name, attr in SOURCE_WEIGHT_FIELDS.items()
+    }
+
+
+def _clean_simplex(vector: Sequence[float]) -> List[float]:
+    """Clip negatives and renormalize so weights are non-negative and sum to 1."""
+    clipped = [max(0.0, float(v)) for v in vector]
+    total = sum(clipped)
+    if total <= 0:
+        n = len(clipped)
+        return [1.0 / n] * n if n else []
+    return [v / total for v in clipped]
+
+
+def _normalize_weights(
+    weights: Mapping[str, float], source_names: Sequence[str]
+) -> List[float]:
+    raw = [max(0.0, float(weights.get(name, 0.0))) for name in source_names]
+    return _clean_simplex(raw)
+
+
+def _mean_brier(
+    weights: Sequence[float], vectors: Sequence[Tuple[List[float], int]]
+) -> float:
+    total = 0.0
+    for probs, actual in vectors:
+        blended = sum(w * p for w, p in zip(weights, probs))
+        blended = min(1.0, max(0.0, blended))
+        total += (blended - actual) ** 2
+    return total / len(vectors)
+
+
+def fit_ensemble_weights(
+    samples: Sequence[WeightSample],
+    source_names: Sequence[str],
+    baseline_weights: Optional[Mapping[str, float]] = None,
+) -> WeightFitResult:
+    """Fit blend weights that minimize Brier score against realized outcomes.
+
+    Args:
+        samples: rows of (per-source probabilities, settled outcome 0/1).
+        source_names: ordered blend sources to fit weights for.
+        baseline_weights: weights to compare against (defaults to uniform).
+
+    Returns a WeightFitResult with the fitted weights, the baseline, and the
+    Brier score for each so callers can decide whether to adopt the update.
+    """
+    if not samples:
+        raise ValueError("at least one sample is required to fit weights")
+    names = list(source_names)
+    if not names:
+        raise ValueError("at least one source is required to fit weights")
+
+    vectors: List[Tuple[List[float], int]] = [
+        ([float(probs.get(name, 0.0)) for name in names], int(actual))
+        for probs, actual in samples
+    ]
+
+    if baseline_weights is None:
+        baseline_vec = [1.0 / len(names)] * len(names)
+    else:
+        baseline_vec = _normalize_weights(baseline_weights, names)
+
+    from scipy.optimize import minimize
+
+    result = minimize(
+        lambda w: _mean_brier(w, vectors),
+        x0=baseline_vec,
+        method="SLSQP",
+        bounds=[(0.0, 1.0)] * len(names),
+        constraints=[{"type": "eq", "fun": lambda w: sum(w) - 1.0}],
+        options={"maxiter": 200, "ftol": 1e-9},
+    )
+
+    fitted_vec = _clean_simplex(list(result.x))
+    # Keep whichever of {baseline, fitted} actually scores better — the optimizer
+    # can land marginally worse after simplex cleanup on already-optimal inputs.
+    if _mean_brier(fitted_vec, vectors) > _mean_brier(baseline_vec, vectors):
+        fitted_vec = list(baseline_vec)
+
+    return WeightFitResult(
+        source_names=names,
+        fitted_weights={name: round(w, 6) for name, w in zip(names, fitted_vec)},
+        baseline_weights={name: round(w, 6) for name, w in zip(names, baseline_vec)},
+        fitted_brier=round(_mean_brier(fitted_vec, vectors), 6),
+        baseline_brier=round(_mean_brier(baseline_vec, vectors), 6),
+        sample_count=len(samples),
+    )
+
+
+# Maps blend source name -> the WeatherForecast row attribute holding its prob.
+FORECAST_PROB_FIELDS = {
+    "ecmwf": "ecmwf_prob",
+    "gefs": "gefs_prob",
+    "analog": "analog_prob",
+    "microclimate": "microclimate_prob",
+    "nws_delta": "nws_delta",
+}
+
+
+def build_weight_samples(
+    forecasts: Iterable[Any],
+    resolver: SettlementResolver,
+    source_names: Optional[Sequence[str]] = None,
+) -> List[WeightSample]:
+    """Join persisted weather forecasts to settlements into weight-fit samples.
+
+    Each forecast row must expose per-source probability attributes and a
+    ``market_ticker``. Forecasts whose ticker has no settled outcome are skipped.
+    """
+    names = list(source_names or FORECAST_PROB_FIELDS.keys())
+    settled = set(resolver.tickers)
+    samples: List[WeightSample] = []
+    for forecast in forecasts:
+        ticker = getattr(forecast, "market_ticker", None)
+        if not ticker or ticker not in settled:
+            continue
+        outcome = resolver.require_outcome(ticker)
+        probs = {}
+        for name in names:
+            attr = FORECAST_PROB_FIELDS.get(name, name)
+            value = getattr(forecast, attr, None)
+            probs[name] = float(value) if value is not None else 0.0
+        actual = 1 if outcome.winning_side.lower() == "yes" else 0
+        samples.append((probs, actual))
+    return samples
+
+
+async def fit_persisted_weights(
+    state: StateManager,
+    resolver: SettlementResolver,
+    *,
+    source_names: Optional[Sequence[str]] = None,
+    strategy: str | None = None,
+    market_category: str | None = None,
+    limit: int = 1000,
+) -> WeightFitResult:
+    """Fit blend weights from stored forecasts joined to settlement outcomes."""
+    forecasts = await state.get_weather_forecasts(
+        strategy=strategy, market_category=market_category, limit=limit
+    )
+    names = list(source_names or FORECAST_PROB_FIELDS.keys())
+    samples = build_weight_samples(forecasts, resolver, names)
+    baseline_all = weather_baseline_weights()
+    baseline = {name: baseline_all.get(name, 0.0) for name in names}
+    return fit_ensemble_weights(samples, names, baseline)

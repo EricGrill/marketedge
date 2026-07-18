@@ -14,6 +14,13 @@ async def test_dashboard_payload_exports_state_and_paper_summary(tmp_path):
     await state.add_market_snapshot(
         {
             "ticker": "HIGHNY-TEST-B88.5",
+            "title": "NYC Daily High above 88.5F",
+            "source": "fixture",
+            "event_metadata": {
+                "category": "weather",
+                "event_type": "temp",
+                "location": "NYC",
+            },
             "bid": 39,
             "ask": 41,
             "last_price": 40,
@@ -57,7 +64,11 @@ async def test_dashboard_payload_exports_state_and_paper_summary(tmp_path):
     saved = json.loads(output_path.read_text(encoding="utf-8"))
 
     assert saved["markets"][0]["ticker"] == "HIGHNY-TEST-B88.5"
+    assert saved["markets"][0]["title"] == "NYC Daily High above 88.5F"
+    assert saved["markets"][0]["source"] == "fixture"
+    assert saved["markets"][0]["event_type"] == "temp"
     assert saved["positions"][0]["ticker"] == "HIGHNY-TEST-B88.5"
+    assert saved["strategy_runs"] == []
     assert saved["risk"]["total_exposure"] == 4.0
     assert saved["risk"]["groups"]["city"][0]["key"] == "nyc"
     assert saved["paper"]["event_count"] == 1

@@ -2,20 +2,135 @@
 """Weather trading strategy for Kalshi prediction markets."""
 
 import asyncio
+import copy
 import logging
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, cast
 from dataclasses import dataclass
 
 from src.config import trading_config
 from src.formulas import QuantEngine
+from src.market_adapters import (
+    CITY_COORDINATES,
+    WeatherMarketAdapter,
+    parse_weather_market_title,
+)
 from src.orders import OrderLedger
+from src.risk_policy import OrderIntent, PreOrderRiskPolicy, RiskDecision
 from src.state import StateManager
 from src.api.client import KalshiRestClient, WeatherMarketScanner
 from src.weather.data import WeatherModelEngine
 from src.utils import parse_timestamp, utcnow
 
 logger = logging.getLogger(__name__)
+
+
+SAMPLE_DASHBOARD_WEATHER_MARKETS: List[Dict[str, Any]] = [
+    {
+        "ticker": "HIGHNY-26JUN18-B88.5",
+        "title": "NYC Daily High above 88.5F",
+        "yes_bid": 23,
+        "yes_ask": 25,
+        "no_bid": 75,
+        "no_ask": 77,
+        "volume": 142000,
+        "open_interest": 142000,
+        "source": "dashboard-sample",
+    },
+    {
+        "ticker": "HIGHNY-26JUN18-B90.5",
+        "title": "NYC Daily High above 90.5F",
+        "yes_bid": 30,
+        "yes_ask": 32,
+        "no_bid": 68,
+        "no_ask": 70,
+        "volume": 118000,
+        "open_interest": 118000,
+        "source": "dashboard-sample",
+    },
+    {
+        "ticker": "HIGHNY-26JUN18-B86.5",
+        "title": "NYC Daily High above 86.5F",
+        "yes_bid": 15,
+        "yes_ask": 17,
+        "no_bid": 83,
+        "no_ask": 85,
+        "volume": 74000,
+        "open_interest": 74000,
+        "source": "dashboard-sample",
+    },
+    {
+        "ticker": "HIGHCHI-26JUN18-B84.5",
+        "title": "Chicago Daily High above 84.5F",
+        "yes_bid": 37,
+        "yes_ask": 39,
+        "no_bid": 61,
+        "no_ask": 63,
+        "volume": 96000,
+        "open_interest": 96000,
+        "source": "dashboard-sample",
+    },
+    {
+        "ticker": "RAINMIA-26JUN18-YES",
+        "title": "Miami Rain Today",
+        "yes_bid": 70,
+        "yes_ask": 72,
+        "no_bid": 28,
+        "no_ask": 30,
+        "volume": 63000,
+        "open_interest": 63000,
+        "source": "dashboard-sample",
+    },
+    {
+        "ticker": "HIGHLA-26JUN18-B75.5",
+        "title": "Los Angeles Daily High above 75.5F",
+        "yes_bid": 51,
+        "yes_ask": 53,
+        "no_bid": 47,
+        "no_ask": 49,
+        "volume": 58000,
+        "open_interest": 58000,
+        "source": "dashboard-sample",
+    },
+    {
+        "ticker": "HIGHDEN-26JUN18-B71.5",
+        "title": "Denver Daily High above 71.5F",
+        "yes_bid": 28,
+        "yes_ask": 30,
+        "no_bid": 70,
+        "no_ask": 72,
+        "volume": 47000,
+        "open_interest": 47000,
+        "source": "dashboard-sample",
+    },
+    {
+        "ticker": "HEATAUS-26JUN18-YES",
+        "title": "Austin High at least 100F",
+        "yes_bid": 63,
+        "yes_ask": 65,
+        "no_bid": 35,
+        "no_ask": 37,
+        "volume": 81000,
+        "open_interest": 81000,
+        "source": "dashboard-sample",
+    },
+    {
+        "ticker": "HIGHBOS-26JUN18-B79.5",
+        "title": "Boston Daily High above 79.5F",
+        "yes_bid": 43,
+        "yes_ask": 45,
+        "no_bid": 55,
+        "no_ask": 57,
+        "volume": 39000,
+        "open_interest": 39000,
+        "source": "dashboard-sample",
+    },
+]
+
+
+def dashboard_sample_weather_markets() -> List[Dict[str, Any]]:
+    """Return dashboard sample markets in Kalshi-like scanner shape."""
+    return copy.deepcopy(SAMPLE_DASHBOARD_WEATHER_MARKETS)
 
 
 @dataclass
@@ -35,6 +150,12 @@ class TradeSignal:
     confidence: float
     reason: str
     passes_screen: bool
+    event_type: str = ""
+    location: str = ""
+    region: str = ""
+    correlation_group: str = ""
+    resolution_date: datetime | None = None
+    source_metadata: Optional[Dict[str, Any]] = None
 
 
 class WeatherTradingStrategy:
@@ -44,15 +165,24 @@ class WeatherTradingStrategy:
         self,
         state_manager: StateManager,
         kalshi_client: KalshiRestClient,
-        quant_engine: QuantEngine = None,
+        quant_engine: Optional[QuantEngine] = None,
         order_ledger: OrderLedger | None = None,
+        use_sample_markets_if_empty: bool = False,
+        execute_orders: bool = True,
+        risk_policy: PreOrderRiskPolicy | None = None,
+        strategy_id: str = "weather",
     ):
         self.state = state_manager
         self.kalshi = kalshi_client
         self.quant = quant_engine or QuantEngine()
         self.order_ledger = order_ledger or OrderLedger()
+        self.risk_policy = risk_policy or PreOrderRiskPolicy(quant_engine=self.quant)
+        self.strategy_id = strategy_id
         self.scanner = WeatherMarketScanner(kalshi_client)
         self.weather = WeatherModelEngine()
+        self.market_adapter = WeatherMarketAdapter()
+        self.use_sample_markets_if_empty = use_sample_markets_if_empty
+        self.execute_orders = execute_orders
         self.running = False
 
     async def scan_and_evaluate(self) -> List[TradeSignal]:
@@ -61,11 +191,21 @@ class WeatherTradingStrategy:
 
         # 1. Get portfolio state
         portfolio = await self.state.get_portfolio_state()
-        bankroll = portfolio.bankroll if portfolio else trading_config.initial_bankroll
+        # PortfolioState is a SQLAlchemy model; bankroll reads as Column[Any].
+        bankroll = (
+            cast(float, portfolio.bankroll)
+            if portfolio
+            else trading_config.initial_bankroll
+        )
 
         # 2. Scan for weather markets
         logger.info("Scanning weather markets...")
         weather_markets = await self.scanner.scan_weather_markets(limit=50)
+        if not weather_markets and self.use_sample_markets_if_empty:
+            weather_markets = dashboard_sample_weather_markets()
+            logger.info(
+                "Using dashboard sample markets for dry-run evaluation because live scan returned none"
+            )
         logger.info("Found %d weather markets", len(weather_markets))
 
         for market in weather_markets:
@@ -83,12 +223,16 @@ class WeatherTradingStrategy:
         self, market: Dict, bankroll: float
     ) -> Optional[TradeSignal]:
         """Evaluate a single market for trading opportunity."""
-        ticker = market.get("ticker")
+        ticker = str(market.get("ticker") or "")
         title = market.get("title", "")
 
-        # Get orderbook
-        orderbook_data = await self.kalshi.get_market_orderbook(ticker)
-        orderbook = orderbook_data.get("orderbook", {})
+        # Sample dry-run markets carry top-level quotes so they do not need a
+        # live orderbook request. Live/scanned markets still use Kalshi data.
+        if all(key in market for key in ("yes_bid", "yes_ask", "no_bid", "no_ask")):
+            orderbook = market
+        else:
+            orderbook_data = await self.kalshi.get_market_orderbook(ticker)
+            orderbook = orderbook_data.get("orderbook", {})
 
         yes_bid = orderbook.get("yes_bid", 0)
         yes_ask = orderbook.get("yes_ask", 0)
@@ -96,16 +240,26 @@ class WeatherTradingStrategy:
         no_ask = orderbook.get("no_ask", 0)
 
         if not yes_ask or not yes_bid:
+            await self._record_signal_audit(
+                "signal_refused",
+                ticker,
+                {"reason_codes": ["MISSING_QUOTES"], "market": market},
+            )
             return None
 
-        # Parse location and event type from title
-        location, event_type, threshold = self._parse_market_title(title)
-
-        if not location or not event_type:
+        normalized = self.market_adapter.normalize({**market, **orderbook})
+        if not normalized:
+            await self._record_signal_audit(
+                "signal_refused",
+                ticker,
+                {"reason_codes": ["UNSUPPORTED_WEATHER_MARKET"], "title": title},
+            )
             return None
+        location = normalized.location
+        event_type = normalized.event_type
+        threshold = normalized.threshold
 
-        # Get coordinates (simplified - would use geocoding API)
-        lat, lon = self._get_coordinates(location)
+        lat, lon = normalized.coordinates
 
         # Fetch weather forecast
         forecast = await self.weather.fetch_all_sources(
@@ -125,9 +279,42 @@ class WeatherTradingStrategy:
             nws_delta=forecast.nws_delta,
             ensemble_spread=forecast.ensemble_spread,
         )
+        await self.state.add_weather_forecast(
+            {
+                "location": location,
+                "event_type": event_type,
+                "forecast_cycle": forecast.forecast_cycle,
+                "ecmwf_prob": forecast.ecmwf_prob,
+                "gefs_prob": forecast.gefs_prob,
+                "analog_prob": forecast.analog_prob,
+                "microclimate_prob": forecast.microclimate_prob,
+                "nws_delta": forecast.nws_delta,
+                "blended_probability": blended_prob,
+                "confidence": confidence,
+                "market_ticker": ticker,
+                "market_price": yes_ask,
+                "market_timestamp": utcnow(),
+                "strategy": self.strategy_id,
+                "model_version": "weather-heuristic-v1",
+                "market_category": normalized.category,
+                "source_metadata": {
+                    "sources": forecast.sources,
+                    "source": normalized.source,
+                },
+                "feature_metadata": {
+                    "threshold": threshold,
+                    "ensemble_spread": forecast.ensemble_spread,
+                    "event_type": event_type,
+                    "location": location,
+                },
+                "forecast_cycle_id": forecast.forecast_cycle.isoformat(),
+            }
+        )
 
         # Get resolution date
-        resolution_date = self._parse_resolution_date(market)
+        resolution_date = normalized.resolution_date or self._parse_resolution_date(
+            market
+        )
 
         # Screen opportunity
         screen = self.quant.screen_opportunity(
@@ -156,6 +343,17 @@ class WeatherTradingStrategy:
                 side = "no"
                 entry_price = no_ask
             else:
+                await self._record_signal_audit(
+                    "signal_refused",
+                    ticker,
+                    {
+                        "reason_codes": ["SCREEN_FAILED"],
+                        "yes_passed": False,
+                        "no_passed": False,
+                        "model_probability": blended_prob,
+                        "market_probability": screen["edge"].market_probability,
+                    },
+                )
                 return None
         else:
             side = "yes"
@@ -166,15 +364,7 @@ class WeatherTradingStrategy:
         quantity = int(kelly.recommended_bet_dollars / (entry_price / 100))
         quantity = max(1, quantity)
 
-        # Check correlation limits
-        correlated_exposure = await self._check_correlation_exposure(
-            location, event_type, kelly.recommended_bet_dollars
-        )
-
-        if correlated_exposure > trading_config.max_correlated_pct:
-            return None
-
-        return TradeSignal(
+        signal = TradeSignal(
             ticker=ticker,
             side=side,
             action="buy",
@@ -188,72 +378,33 @@ class WeatherTradingStrategy:
             confidence=confidence,
             reason=f"{event_type} @ {location}: model={blended_prob:.2%}, market={screen['edge'].market_probability:.2%}",
             passes_screen=True,
+            event_type=event_type,
+            location=location,
+            region=normalized.region,
+            correlation_group=normalized.relationship_group,
+            resolution_date=resolution_date,
+            source_metadata=normalized.to_dict(),
         )
+        await self._record_signal_audit(
+            "signal_generated",
+            ticker,
+            {
+                "side": side,
+                "quantity": quantity,
+                "entry_price": entry_price,
+                "edge": signal.edge,
+                "passes_screen": True,
+            },
+        )
+        return signal
 
     def _parse_market_title(self, title: str) -> tuple:
         """Parse location, event type, and threshold from market title."""
-        title_lower = title.lower()
-
-        # Event type detection
-        event_type = None
-        if any(kw in title_lower for kw in ["rain", "precipitation", "precip"]):
-            event_type = "rain"
-        elif any(
-            kw in title_lower for kw in ["temp", "temperature", "high", "low", "degree"]
-        ):
-            event_type = "temp"
-        elif any(kw in title_lower for kw in ["snow", "blizzard"]):
-            event_type = "snow"
-        elif any(kw in title_lower for kw in ["wind", "hurricane", "tornado"]):
-            event_type = "wind"
-
-        # Location detection (simplified)
-        location = None
-        cities = {
-            "new york": "NYC",
-            "nyc": "NYC",
-            "los angeles": "LA",
-            "la": "LA",
-            "chicago": "CHI",
-            "houston": "HOU",
-            "phoenix": "PHX",
-            "philadelphia": "PHI",
-            "miami": "MIA",
-            "boston": "BOS",
-            "seattle": "SEA",
-            "denver": "DEN",
-        }
-
-        for city_key, city_code in cities.items():
-            if city_key in title_lower:
-                location = city_code
-                break
-
-        # Threshold extraction (simplified)
-        threshold = 0.0
-        import re
-
-        numbers = re.findall(r"\d+\.?\d*", title)
-        if numbers:
-            threshold = float(numbers[0])
-
-        return location, event_type, threshold
+        return parse_weather_market_title(title)
 
     def _get_coordinates(self, location: str) -> tuple:
         """Get lat/lon for location code."""
-        coords = {
-            "NYC": (40.7128, -74.0060),
-            "LA": (34.0522, -118.2437),
-            "CHI": (41.8781, -87.6298),
-            "HOU": (29.7604, -95.3698),
-            "PHX": (33.4484, -112.0740),
-            "PHI": (39.9526, -75.1652),
-            "MIA": (25.7617, -80.1918),
-            "BOS": (42.3601, -71.0589),
-            "SEA": (47.6062, -122.3321),
-            "DEN": (39.7392, -104.9903),
-        }
-        return coords.get(location, (40.0, -100.0))
+        return CITY_COORDINATES.get(location, (40.0, -100.0))
 
     def _parse_resolution_date(self, market: Dict) -> datetime:
         """Parse resolution date from market data."""
@@ -301,6 +452,15 @@ class WeatherTradingStrategy:
             signal.quantity,
         )
         client_order_id = f"weather_{utcnow().strftime('%Y%m%d%H%M%S')}"
+        risk_decision = await self.evaluate_signal_risk(signal, dry_run=False)
+        if not risk_decision.allowed:
+            return {
+                "success": False,
+                "error": "risk policy blocked order",
+                "risk_decision": risk_decision,
+                "signal": signal,
+            }
+
         order_record = self.order_ledger.submit(
             order_id=client_order_id,
             ticker=signal.ticker,
@@ -309,6 +469,14 @@ class WeatherTradingStrategy:
             order_type="limit",
             requested_quantity=signal.quantity,
             limit_price=int(signal.entry_price),
+        )
+        await self._record_signal_audit(
+            "order_attempt",
+            signal.ticker,
+            {
+                "client_order_id": client_order_id,
+                "risk_decision": risk_decision.to_dict(),
+            },
         )
 
         # Place order
@@ -326,11 +494,21 @@ class WeatherTradingStrategy:
             order_record = self.order_ledger.reject(
                 client_order_id, reason=f"place_order failed: {exc}"
             )
+            await self._record_signal_audit(
+                "order_rejected",
+                signal.ticker,
+                {"client_order_id": client_order_id, "reason": str(exc)},
+            )
             logger.exception("Order placement failed")
             return {"success": False, "error": str(exc), "order_record": order_record}
 
         if order.get("error"):
             order_record = self.order_ledger.reject(client_order_id, reason=str(order))
+            await self._record_signal_audit(
+                "order_rejected",
+                signal.ticker,
+                {"client_order_id": client_order_id, "reason": order},
+            )
             logger.error("Order failed: %s", order)
             return {"success": False, "error": order, "order_record": order_record}
 
@@ -338,6 +516,11 @@ class WeatherTradingStrategy:
         if rejection_reason:
             order_record = self.order_ledger.reject(
                 client_order_id, reason=rejection_reason
+            )
+            await self._record_signal_audit(
+                "order_rejected",
+                signal.ticker,
+                {"client_order_id": client_order_id, "reason": rejection_reason},
             )
             logger.error("Order rejected: %s", rejection_reason)
             return {
@@ -357,6 +540,15 @@ class WeatherTradingStrategy:
                 client_order_id,
                 quantity=filled_quantity,
                 price=average_fill_price,
+            )
+            await self._record_signal_audit(
+                "order_filled",
+                signal.ticker,
+                {
+                    "client_order_id": client_order_id,
+                    "filled_quantity": filled_quantity,
+                    "average_fill_price": average_fill_price,
+                },
             )
         else:
             logger.info("Order %s accepted with no immediate fill", client_order_id)
@@ -383,13 +575,10 @@ class WeatherTradingStrategy:
             "las_at_entry": 0.0,
             "kelly_fraction": signal.kelly_fraction,
             "weather_event_type": signal.reason.split(":")[0].split("@")[0].strip(),
-            "location": (
-                signal.reason.split("@")[1].split(":")[0].strip()
-                if "@" in signal.reason
-                else ""
-            ),
+            "location": signal.location,
             "forecast_cycle": utcnow(),
-            "resolution_date": utcnow() + timedelta(days=7),
+            "resolution_date": signal.resolution_date or utcnow() + timedelta(days=7),
+            "correlated_group": signal.correlation_group,
             "position_pct_of_bankroll": (average_fill_price / 100 * filled_quantity)
             / trading_config.initial_bankroll,
         }
@@ -415,7 +604,18 @@ class WeatherTradingStrategy:
 
                 for signal in signals:
                     if signal.passes_screen:
-                        await self.execute_signal(signal)
+                        if self.execute_orders:
+                            await self.execute_signal(signal)
+                        else:
+                            await self.evaluate_signal_risk(signal, dry_run=True)
+                            logger.info(
+                                "DRY RUN signal: %s %s @ %s¢ x%d (%s)",
+                                signal.ticker,
+                                signal.side,
+                                signal.entry_price,
+                                signal.quantity,
+                                signal.reason,
+                            )
 
                 # Check existing positions for exit signals
                 await self._check_exits()
@@ -447,6 +647,55 @@ class WeatherTradingStrategy:
         self.running = False
         await self.weather.close()
 
+    async def evaluate_signal_risk(
+        self, signal: TradeSignal, *, dry_run: bool
+    ) -> RiskDecision:
+        """Evaluate and audit a signal before any live order placement."""
+        intent = OrderIntent(
+            ticker=signal.ticker,
+            side=signal.side,
+            action=signal.action,
+            quantity=signal.quantity,
+            limit_price=signal.entry_price,
+            strategy_id=self.strategy_id,
+            correlation_group=signal.correlation_group,
+            region=signal.location or signal.region,
+            event_type=signal.event_type or "weather",
+            metadata={
+                "dry_run": dry_run,
+                "edge": signal.edge,
+                "confidence": signal.confidence,
+            },
+        )
+        await self._record_signal_audit(
+            "order_intent",
+            signal.ticker,
+            {"dry_run": dry_run, "intent": intent.to_dict()},
+        )
+        decision = await self.risk_policy.evaluate(self.state, intent)
+        await self._record_signal_audit(
+            "risk_decision",
+            signal.ticker,
+            {"dry_run": dry_run, **decision.to_dict()},
+        )
+        if dry_run:
+            await self._record_signal_audit(
+                "dry_run_order_review",
+                signal.ticker,
+                {"risk_decision": decision.to_dict()},
+            )
+        return decision
+
+    async def _record_signal_audit(
+        self, event_type: str, ticker: str | None, payload: Dict[str, Any]
+    ) -> None:
+        await self.state.record_audit_event(
+            event_type=event_type,
+            subject=self.strategy_id,
+            ticker=ticker,
+            payload=payload,
+        )
+
     def _extract_fill(
         self,
         order_response: Dict[str, Any],
@@ -472,7 +721,7 @@ class WeatherTradingStrategy:
             if filled_quantity:
                 return filled_quantity, notional / filled_quantity
 
-        filled_quantity = self._first_int(
+        resolved = self._first_int(
             payloads,
             (
                 "filled_quantity",
@@ -483,15 +732,15 @@ class WeatherTradingStrategy:
             ),
         )
         status = self._order_status(order_response)
-        if filled_quantity is None:
+        if resolved is None:
             if status in {"open", "pending", "resting", "working"}:
-                filled_quantity = 0
+                resolved = 0
             elif status in {"partially_filled", "partial_fill"}:
-                filled_quantity = 0
+                resolved = 0
             else:
-                filled_quantity = requested_quantity
+                resolved = requested_quantity
 
-        filled_quantity = max(0, min(filled_quantity, requested_quantity))
+        filled_quantity = max(0, min(resolved, requested_quantity))
         average_fill_price = self._first_float(
             payloads, ("average_price", "avg_price", "fill_price", "price")
         )
