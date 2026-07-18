@@ -288,11 +288,16 @@ async def load_persisted_forecasts(
     )
     forecasts: List[ForecastInput] = []
     for row in rows:
+        created_at = row.created_at
+        ticker = row.market_ticker
+        blended = row.blended_probability
+        if created_at is None or ticker is None or blended is None:
+            continue
         forecasts.append(
             ForecastInput(
-                timestamp=row.created_at,
-                ticker=row.market_ticker,
-                model_probability=row.blended_probability,
+                timestamp=created_at,
+                ticker=ticker,
+                model_probability=blended,
                 strategy=row.strategy or "weather",
                 market_category=row.market_category or "weather",
                 event_type=row.event_type or "unknown",

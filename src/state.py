@@ -4,13 +4,12 @@
 import asyncio
 import json
 import os
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
 from sqlalchemy import (
     create_engine,
-    Column,
     Integer,
     Float,
     String,
@@ -19,12 +18,21 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    sessionmaker,
+    relationship,
+    Mapped,
+    mapped_column,
+)
 from sqlalchemy.types import TypeDecorator
 
 from src.utils import utcnow
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
+
 
 SCHEMA_VERSION = "0001_state_and_audit"
 SCHEMA_DESCRIPTION = (
@@ -78,164 +86,180 @@ class TradeSide(str, Enum):
 class Position(Base):
     __tablename__ = "positions"
 
-    id = Column(Integer, primary_key=True)
-    ticker = Column(String(50), nullable=False, index=True)
-    event_title = Column(String(500))
-    side = Column(String(10))
-    entry_price = Column(Float)
-    exit_price = Column(Float, nullable=True)
-    quantity = Column(Integer)
-    status = Column(String(20), default="open")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    event_title: Mapped[Optional[str]] = mapped_column(String(500))
+    side: Mapped[Optional[str]] = mapped_column(String(10))
+    entry_price: Mapped[Optional[float]] = mapped_column(Float)
+    exit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    quantity: Mapped[Optional[int]] = mapped_column(Integer)
+    status: Mapped[Optional[str]] = mapped_column(String(20), default="open")
 
     # Model data
-    model_probability = Column(Float)
-    market_probability = Column(Float)
-    edge_at_entry = Column(Float)
-    iy_annualized = Column(Float)
-    las_at_entry = Column(Float)
-    kelly_fraction = Column(Float)
+    model_probability: Mapped[Optional[float]] = mapped_column(Float)
+    market_probability: Mapped[Optional[float]] = mapped_column(Float)
+    edge_at_entry: Mapped[Optional[float]] = mapped_column(Float)
+    iy_annualized: Mapped[Optional[float]] = mapped_column(Float)
+    las_at_entry: Mapped[Optional[float]] = mapped_column(Float)
+    kelly_fraction: Mapped[Optional[float]] = mapped_column(Float)
 
     # Weather specifics
-    weather_event_type = Column(String(50))  # rain, temp, wind, snow
-    location = Column(String(100))
-    forecast_cycle = Column(UTCDateTime)
-    resolution_date = Column(UTCDateTime)
+    weather_event_type: Mapped[Optional[str]] = mapped_column(String(50))
+    location: Mapped[Optional[str]] = mapped_column(String(100))
+    forecast_cycle: Mapped[Optional[datetime]] = mapped_column(UTCDateTime)
+    resolution_date: Mapped[Optional[datetime]] = mapped_column(UTCDateTime)
 
     # Risk
-    correlated_group = Column(String(50), nullable=True)
-    position_pct_of_bankroll = Column(Float)
+    correlated_group: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    position_pct_of_bankroll: Mapped[Optional[float]] = mapped_column(Float)
 
     # Timestamps
-    created_at = Column(UTCDateTime, default=utcnow)
-    updated_at = Column(UTCDateTime, default=utcnow, onupdate=utcnow)
-    closed_at = Column(UTCDateTime, nullable=True)
+    created_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        UTCDateTime, default=utcnow, onupdate=utcnow
+    )
+    closed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
 
     # P&L
-    realized_pnl = Column(Float, nullable=True)
-    settlement_fee = Column(Float, nullable=True)
+    realized_pnl: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    settlement_fee: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    trades = relationship(
-        "Trade", back_populates="position", cascade="all, delete-orphan"
+    trades: Mapped[List["Trade"]] = relationship(
+        back_populates="position", cascade="all, delete-orphan"
     )
 
 
 class Trade(Base):
     __tablename__ = "trades"
 
-    id = Column(Integer, primary_key=True)
-    position_id = Column(Integer, ForeignKey("positions.id"))
-    trade_type = Column(String(20))  # entry, exit, partial
-    side = Column(String(10))
-    price = Column(Float)
-    quantity = Column(Integer)
-    timestamp = Column(UTCDateTime, default=utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    position_id: Mapped[Optional[int]] = mapped_column(ForeignKey("positions.id"))
+    trade_type: Mapped[Optional[str]] = mapped_column(String(20))  # entry/exit/partial
+    side: Mapped[Optional[str]] = mapped_column(String(10))
+    price: Mapped[Optional[float]] = mapped_column(Float)
+    quantity: Mapped[Optional[int]] = mapped_column(Integer)
+    timestamp: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, default=utcnow)
 
-    position = relationship("Position", back_populates="trades")
+    position: Mapped[Optional["Position"]] = relationship(back_populates="trades")
 
 
 class WeatherForecast(Base):
     __tablename__ = "weather_forecasts"
 
-    id = Column(Integer, primary_key=True)
-    location = Column(String(100), index=True)
-    event_type = Column(String(50))
-    forecast_cycle = Column(UTCDateTime, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    location: Mapped[Optional[str]] = mapped_column(String(100), index=True)
+    event_type: Mapped[Optional[str]] = mapped_column(String(50))
+    forecast_cycle: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, index=True)
 
     # Raw model outputs
-    ecmwf_prob = Column(Float)
-    gefs_prob = Column(Float)
-    analog_prob = Column(Float)
-    microclimate_prob = Column(Float)
-    nws_delta = Column(Float)
+    ecmwf_prob: Mapped[Optional[float]] = mapped_column(Float)
+    gefs_prob: Mapped[Optional[float]] = mapped_column(Float)
+    analog_prob: Mapped[Optional[float]] = mapped_column(Float)
+    microclimate_prob: Mapped[Optional[float]] = mapped_column(Float)
+    nws_delta: Mapped[Optional[float]] = mapped_column(Float)
 
     # Blended
-    blended_probability = Column(Float)
-    confidence = Column(Float)  # 0-1 based on ensemble spread
+    blended_probability: Mapped[Optional[float]] = mapped_column(Float)
+    confidence: Mapped[Optional[float]] = mapped_column(Float)  # 0-1 ensemble spread
 
     # Market snapshot
-    market_ticker = Column(String(50))
-    market_price = Column(Float, nullable=True)
-    market_timestamp = Column(UTCDateTime, nullable=True)
+    market_ticker: Mapped[Optional[str]] = mapped_column(String(50))
+    market_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    market_timestamp: Mapped[Optional[datetime]] = mapped_column(
+        UTCDateTime, nullable=True
+    )
 
     # Category-neutral forecast metadata used for calibration feedback.
-    strategy = Column(String(80), default="weather")
-    model_version = Column(String(80), default="")
-    market_category = Column(String(80), default="weather")
-    source_metadata_json = Column(Text, default="{}")
-    feature_metadata_json = Column(Text, default="{}")
-    forecast_cycle_id = Column(String(120), default="")
+    strategy: Mapped[Optional[str]] = mapped_column(String(80), default="weather")
+    model_version: Mapped[Optional[str]] = mapped_column(String(80), default="")
+    market_category: Mapped[Optional[str]] = mapped_column(
+        String(80), default="weather"
+    )
+    source_metadata_json: Mapped[Optional[str]] = mapped_column(Text, default="{}")
+    feature_metadata_json: Mapped[Optional[str]] = mapped_column(Text, default="{}")
+    forecast_cycle_id: Mapped[Optional[str]] = mapped_column(String(120), default="")
 
-    created_at = Column(UTCDateTime, default=utcnow)
+    created_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class MarketSnapshot(Base):
     __tablename__ = "market_snapshots"
 
-    id = Column(Integer, primary_key=True)
-    ticker = Column(String(50), index=True)
-    title = Column(String(500), default="")
-    event_metadata_json = Column(Text, default="{}")
-    source = Column(String(80), default="")
-    bid = Column(Float)
-    ask = Column(Float)
-    last_price = Column(Float)
-    volume_24h = Column(Integer)
-    open_interest = Column(Integer)
-    yes_ask = Column(Float)
-    yes_bid = Column(Float)
-    no_ask = Column(Float)
-    no_bid = Column(Float)
-    timestamp = Column(UTCDateTime, default=utcnow, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticker: Mapped[Optional[str]] = mapped_column(String(50), index=True)
+    title: Mapped[Optional[str]] = mapped_column(String(500), default="")
+    event_metadata_json: Mapped[Optional[str]] = mapped_column(Text, default="{}")
+    source: Mapped[Optional[str]] = mapped_column(String(80), default="")
+    bid: Mapped[Optional[float]] = mapped_column(Float)
+    ask: Mapped[Optional[float]] = mapped_column(Float)
+    last_price: Mapped[Optional[float]] = mapped_column(Float)
+    volume_24h: Mapped[Optional[int]] = mapped_column(Integer)
+    open_interest: Mapped[Optional[int]] = mapped_column(Integer)
+    yes_ask: Mapped[Optional[float]] = mapped_column(Float)
+    yes_bid: Mapped[Optional[float]] = mapped_column(Float)
+    no_ask: Mapped[Optional[float]] = mapped_column(Float)
+    no_bid: Mapped[Optional[float]] = mapped_column(Float)
+    timestamp: Mapped[Optional[datetime]] = mapped_column(
+        UTCDateTime, default=utcnow, index=True
+    )
 
 
 class PortfolioState(Base):
     __tablename__ = "portfolio_state"
 
-    id = Column(Integer, primary_key=True)
-    bankroll = Column(Float, default=10000.0)
-    available_cash = Column(Float, default=10000.0)
-    total_exposure = Column(Float, default=0.0)
-    open_positions_count = Column(Integer, default=0)
-    mtd_pnl = Column(Float, default=0.0)
-    ytd_pnl = Column(Float, default=0.0)
-    max_drawdown = Column(Float, default=0.0)
-    peak_bankroll = Column(Float, default=10000.0)
-    updated_at = Column(UTCDateTime, default=utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bankroll: Mapped[Optional[float]] = mapped_column(Float, default=10000.0)
+    available_cash: Mapped[Optional[float]] = mapped_column(Float, default=10000.0)
+    total_exposure: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
+    open_positions_count: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    mtd_pnl: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
+    ytd_pnl: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
+    max_drawdown: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
+    peak_bankroll: Mapped[Optional[float]] = mapped_column(Float, default=10000.0)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class SchemaMigration(Base):
     __tablename__ = "schema_migrations"
 
-    version = Column(String(64), primary_key=True)
-    description = Column(String(255), nullable=False)
-    applied_at = Column(UTCDateTime, default=utcnow, nullable=False)
+    version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    description: Mapped[str] = mapped_column(String(255), nullable=False)
+    applied_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, default=utcnow, nullable=False
+    )
 
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 
-    id = Column(Integer, primary_key=True)
-    event_type = Column(String(80), nullable=False, index=True)
-    subject = Column(String(120), nullable=False, index=True)
-    ticker = Column(String(50), nullable=True, index=True)
-    payload_json = Column(Text, nullable=False, default="{}")
-    created_at = Column(UTCDateTime, default=utcnow, nullable=False, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    subject: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    ticker: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, default=utcnow, nullable=False, index=True
+    )
 
 
 class StrategyRun(Base):
     __tablename__ = "strategy_runs"
 
-    id = Column(Integer, primary_key=True)
-    run_id = Column(String(120), nullable=False, unique=True, index=True)
-    strategy_id = Column(String(120), nullable=False, index=True)
-    status = Column(String(40), nullable=False, default="started")
-    started_at = Column(UTCDateTime, default=utcnow, nullable=False, index=True)
-    finished_at = Column(UTCDateTime, nullable=True)
-    warnings_json = Column(Text, nullable=False, default="[]")
-    signal_count = Column(Integer, nullable=False, default=0)
-    artifact_paths_json = Column(Text, nullable=False, default="[]")
-    config_json = Column(Text, nullable=False, default="{}")
-    explanation_json = Column(Text, nullable=False, default="{}")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String(120), nullable=False, unique=True, index=True
+    )
+    strategy_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="started")
+    started_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, default=utcnow, nullable=False, index=True
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
+    warnings_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    signal_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    artifact_paths_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    config_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    explanation_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
 
 
 # ========== STATE MANAGER ==========
@@ -245,8 +269,8 @@ class StateManager:
     """Thread-safe state manager with async SQLite backend."""
 
     def __init__(self, db_path: str | None = None):
-        self.db_path = db_path or os.getenv(
-            "MARKETEDGE_DB_PATH", "data/kalshi_quant.db"
+        self.db_path = (
+            db_path or os.getenv("MARKETEDGE_DB_PATH") or "data/kalshi_quant.db"
         )
         db_parent = os.path.dirname(self.db_path)
         if db_parent:
@@ -512,13 +536,16 @@ class StateManager:
                 )
                 latest_by_ticker: Dict[str, MarketSnapshot] = {}
                 for snapshot in snapshots:
-                    if snapshot.ticker not in latest_by_ticker:
-                        latest_by_ticker[snapshot.ticker] = snapshot
+                    ticker = snapshot.ticker
+                    if ticker is None:
+                        continue
+                    if ticker not in latest_by_ticker:
+                        latest_by_ticker[ticker] = snapshot
                     if len(latest_by_ticker) >= limit:
                         break
                 return list(latest_by_ticker.values())
 
-    async def get_portfolio_state(self) -> PortfolioState:
+    async def get_portfolio_state(self) -> Optional[PortfolioState]:
         async with self._lock:
             with self.Session() as session:
                 return (

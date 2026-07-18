@@ -427,7 +427,7 @@ class WeatherTradingStrategy:
             positions_data.append(
                 {
                     "ticker": pos.ticker,
-                    "size": pos.entry_price * pos.quantity,
+                    "size": (pos.entry_price or 0.0) * (pos.quantity or 0),
                     "region": pos.location,
                     "event_type": pos.weather_event_type,
                 }
