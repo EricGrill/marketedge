@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import sys
+from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 
@@ -467,6 +468,22 @@ def calibration_fit_weights(settlements, file_format, db_path, json_out):
         console.print(f"[green]Wrote proposed weights to {path}[/green]")
 
 
+@contextmanager
+def strategy_errors():
+    """Render strategy lookup/state errors as clean CLI errors.
+
+    The registry raises plain ``ValueError`` for an unknown or disabled
+    strategy. Uncaught, Click prints a full traceback and (because the raise
+    happens inside ``asyncio.run``) still exits 0. Converting to
+    ``ClickException`` matches how the rest of the CLI reports user errors and
+    gives a non-zero exit.
+    """
+    try:
+        yield
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 @cli.group()
 def strategies():
     """List, configure, and run registered strategies."""
@@ -513,7 +530,8 @@ def strategies_list(ctx, config_path):
 def strategies_inspect(strategy_id, config_path):
     """Show one strategy metadata/config as JSON."""
     registry = StrategyRegistry()
-    strategy = registry.get(strategy_id)
+    with strategy_errors():
+        strategy = registry.get(strategy_id)
     config = StrategyConfigStore(config_path).get_strategy_config(
         strategy_id, strategy.default_config()
     )
@@ -533,7 +551,8 @@ def strategies_inspect(strategy_id, config_path):
 )
 def strategies_enable(strategy_id, config_path):
     """Enable a registered strategy."""
-    StrategyRegistry().get(strategy_id)
+    with strategy_errors():
+        StrategyRegistry().get(strategy_id)
     StrategyConfigStore(config_path).set_enabled(strategy_id, True)
     console.print(f"[green]Enabled {strategy_id}[/green]")
 
@@ -545,7 +564,8 @@ def strategies_enable(strategy_id, config_path):
 )
 def strategies_disable(strategy_id, config_path):
     """Disable a registered strategy."""
-    StrategyRegistry().get(strategy_id)
+    with strategy_errors():
+        StrategyRegistry().get(strategy_id)
     StrategyConfigStore(config_path).set_enabled(strategy_id, False)
     console.print(f"[green]Disabled {strategy_id}[/green]")
 
@@ -565,13 +585,14 @@ def strategies_disable(strategy_id, config_path):
 def strategies_run(ctx, strategy_id, config_path, live, json_out):
     """Run a registered strategy through the local manager."""
     state = ctx.obj["state"]
-    result = asyncio.run(
-        StrategyManager(
-            state,
-            registry=StrategyRegistry(),
-            config_store=StrategyConfigStore(config_path),
-        ).run(strategy_id, dry_run=not live)
-    )
+    with strategy_errors():
+        result = asyncio.run(
+            StrategyManager(
+                state,
+                registry=StrategyRegistry(),
+                config_store=StrategyConfigStore(config_path),
+            ).run(strategy_id, dry_run=not live)
+        )
     console.print(
         f"[green]Ran {strategy_id}: {result['status']} "
         f"({len(result['opportunities'])} signals)[/green]"
