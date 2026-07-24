@@ -58,6 +58,34 @@ class KalshiAuth:
         }
 
 
+def _decode_error_body(response: httpx.Response) -> Dict[str, Any]:
+    """Best-effort read of an error response body.
+
+    Kalshi normally returns JSON errors, but gateways, proxies and rate
+    limiters return HTML or plain text. Parsing that with ``.json()`` raises
+    ``JSONDecodeError`` — and because the parse happens *inside* an
+    ``except`` block, the surrounding ``except Exception`` cannot catch it, so
+    the whole request crashed the caller instead of returning an error dict.
+    """
+    if not response.content:
+        return {}
+    try:
+        parsed = response.json()
+    except ValueError:
+        # Not JSON. Surface the raw text so the operator can still see what
+        # the gateway said, truncated so an HTML error page stays readable.
+        text = response.text.strip()
+        if len(text) > _MAX_ERROR_BODY_CHARS:
+            text = text[:_MAX_ERROR_BODY_CHARS] + "..."
+        return {"message": text, "parse_error": "response body was not JSON"}
+    # A JSON body is only useful as a dict; scalars/lists get wrapped so
+    # callers can always treat `detail` as a mapping.
+    return parsed if isinstance(parsed, dict) else {"message": parsed}
+
+
+_MAX_ERROR_BODY_CHARS = 500
+
+
 class KalshiRestClient:
     """REST API client for Kalshi."""
 
@@ -90,11 +118,10 @@ class KalshiRestClient:
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as e:
-            error_data = e.response.json() if e.response.content else {}
             return {
                 "error": True,
                 "status_code": e.response.status_code,
-                "detail": error_data,
+                "detail": _decode_error_body(e.response),
             }
         except Exception as e:
             return {"error": True, "detail": str(e)}
