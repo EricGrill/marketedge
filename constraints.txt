@@ -33,7 +33,7 @@ mccabe==0.7.0
 mdit-py-plugins==0.6.1
 mdurl==0.1.2
 mypy_extensions==1.1.0
-numpy==2.4.6
+numpy==2.5.1
 packaging==26.2
 pandas==3.0.3
 pathspec==1.1.1
