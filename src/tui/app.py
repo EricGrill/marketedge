@@ -3,6 +3,7 @@
 
 import asyncio
 import logging
+from typing import Any, List, Optional, cast
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, Grid
@@ -78,11 +79,11 @@ class PortfolioWidget(Static):
     async def refresh_data(self, state_manager: StateManager):
         portfolio = await state_manager.get_portfolio_state()
         if portfolio:
-            self.bankroll = portfolio.bankroll
-            self.available = portfolio.available_cash
-            self.exposure = portfolio.total_exposure
-            self.open_count = portfolio.open_positions_count
-            self.mtd_pnl = portfolio.mtd_pnl
+            self.bankroll = portfolio.bankroll or 0.0
+            self.available = portfolio.available_cash or 0.0
+            self.exposure = portfolio.total_exposure or 0.0
+            self.open_count = portfolio.open_positions_count or 0
+            self.mtd_pnl = portfolio.mtd_pnl or 0.0
 
 
 class PositionsTable(Static):
@@ -90,7 +91,7 @@ class PositionsTable(Static):
 
     def compose(self) -> ComposeResult:
         yield Label("[b]OPEN POSITIONS[/b]", classes="title")
-        table = DataTable(id="positions-table")
+        table: DataTable = DataTable(id="positions-table")
         table.add_columns(
             "Ticker", "Side", "Entry", "Qty", "Edge", "IY", "Location", "Age"
         )
@@ -102,10 +103,10 @@ class PositionsTable(Static):
 
         positions = await state_manager.get_open_positions()
         for pos in positions:
-            age = (utcnow() - pos.created_at).days
+            age = (utcnow() - (pos.created_at or utcnow())).days
             table.add_row(
                 pos.ticker,
-                pos.side.upper(),
+                (pos.side or "").upper(),
                 f"{pos.entry_price:.2f}",
                 str(pos.quantity),
                 f"{pos.edge_at_entry:.2%}",
@@ -118,11 +119,11 @@ class PositionsTable(Static):
 class SignalsTable(Static):
     """Display recent trade signals."""
 
-    signals = reactive([], init=False)
+    signals: reactive[list] = reactive([], init=False)
 
     def compose(self) -> ComposeResult:
         yield Label("[b]RECENT SIGNALS[/b]", classes="title")
-        table = DataTable(id="signals-table")
+        table: DataTable = DataTable(id="signals-table")
         table.add_columns("Time", "Ticker", "Side", "Price", "Edge", "IY", "Action")
         yield table
 
@@ -159,10 +160,10 @@ class MarketScannerWidget(Static):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "scan-btn":
-            self.app.start_scanner()
+            cast("KalshiQuantApp", self.app).start_scanner()
             event.stop()
         elif event.button.id == "stop-btn":
-            self.app.stop_scanner()
+            cast("KalshiQuantApp", self.app).stop_scanner()
             event.stop()
 
     def add_log(self, message: str):
@@ -259,9 +260,9 @@ class KalshiQuantApp(App):
         super().__init__(**kwargs)
         self.state = state_manager
         self.quant = QuantEngine()
-        self._refresh_task = None
-        self._scan_task = None
-        self._signals_history = []
+        self._refresh_task: Optional[asyncio.Task] = None
+        self._scan_task: Optional[asyncio.Task] = None
+        self._signals_history: List[Any] = []
         self._scanner_settings = {
             "min_edge": trading_config.min_edge_pct,
             "min_iy": trading_config.min_iy_annualized,
