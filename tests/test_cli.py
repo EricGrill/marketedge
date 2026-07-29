@@ -436,3 +436,51 @@ def test_db_cli_initializes_schema_and_records_audit_events():
     assert audit_result.exit_code == 0
     assert "paper-trade" in audit_result.output
     assert "RAIN-NYC-TEST" in audit_result.output
+
+
+# --- CHA-2390: strategy lookup/state errors must be clean CLI errors ---
+
+
+def test_strategies_run_disabled_reports_clean_error(tmp_path):
+    """A disabled strategy must produce a CLI error, not a traceback."""
+    config_path = tmp_path / "strategy-config.json"
+    config_path.write_text(json.dumps({"relative-value": {"enabled": False}}))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli, ["strategies", "run", "relative-value", "--config", str(config_path)]
+    )
+
+    assert result.exit_code != 0
+    assert "Error: strategy disabled: relative-value" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_strategies_run_unknown_id_reports_clean_error(tmp_path):
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "strategies",
+            "run",
+            "no-such-strategy",
+            "--config",
+            str(tmp_path / "strategy-config.json"),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "Error: strategy not found: no-such-strategy" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_strategies_inspect_enable_disable_unknown_id_report_clean_errors(tmp_path):
+    runner = CliRunner()
+    config_path = str(tmp_path / "strategy-config.json")
+    for command in ("inspect", "enable", "disable"):
+        result = runner.invoke(
+            cli, ["strategies", command, "no-such-strategy", "--config", config_path]
+        )
+        assert result.exit_code != 0, command
+        assert "Error: strategy not found: no-such-strategy" in result.output, command
+        assert "Traceback" not in result.output, command
