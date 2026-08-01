@@ -54,7 +54,7 @@ rich==15.0.0
 scipy==1.18.0
 six==1.17.0
 SQLAlchemy==2.0.51
-textual==8.2.7
+textual==8.2.8
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uc-micro-py==2.0.0
